@@ -1,0 +1,13 @@
+---
+description: 곰아워 앱 프로젝트 구조 및 컨텍스트
+alwaysApply: true
+---
+
+# 곰아워 프로젝트
+
+- **앱**: Flutter WebView iOS 앱, `gom-hr.com/app` 로드
+- **백엔드**: Hono + Cloudflare Workers (index.tsx)
+- **로그인**: 카카오, Apple (gom-hr.com 도메인)
+- **배포**: App Store 심사 제출 완료
+
+상세 구조는 `CONTEXT.md` 참고.

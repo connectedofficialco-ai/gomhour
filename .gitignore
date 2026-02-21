@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+flutter_app/build/
+flutter_app/.dart_tool/
+flutter_app/ios/Pods/
+flutter_app/ios/.symlinks/
+flutter_app/ios/Flutter/Flutter.framework
+flutter_app/ios/Flutter/Flutter.podspec
+
+# Wrangler
+.wrangler/
+.dev.vars
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+*.log

@@ -1,0 +1,36 @@
+name = "gomhour"
+main = "index.tsx"
+compatibility_date = "2025-02-05"
+assets = { directory = "./public" }
+
+# gom-hr.com 커스텀 도메인 (도메인을 Cloudflare에 추가한 후 deploy)
+[[routes]]
+pattern = "gom-hr.com"
+custom_domain = true
+
+[[routes]]
+pattern = "www.gom-hr.com"
+custom_domain = true
+
+[vars]
+KAKAO_CLIENT_ID = "462f02d70fd4149eb932cd66c5bc7ac5"
+KAKAO_REDIRECT_URI = "https://gom-hr.com/auth/kakao/callback"
+APPLE_CLIENT_ID = "com.gomhour.gomawo.web"
+APPLE_REDIRECT_URI = "https://gom-hr.com/auth/apple/callback"
+APPLE_TEAM_ID = "R6482544RU"
+APPLE_KEY_ID = "YQ53W7Y79W"
+JWT_SECRET = "dev-secret"
+RESEND_FROM = "no-reply@updates.gomhour.com"
+FEEDBACK_TO = "connected.official.co@gmail.com"
+APNS_TEAM_ID = "R6482544RU"
+APNS_KEY_ID = "4CX9US5H63"
+APNS_BUNDLE_ID = "com.gomhour.gomawo"
+APNS_USE_SANDBOX = "false"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gomawo"
+database_id = "7f189b48-c21f-470b-b022-3520c05c384e"
+
+[triggers]
+crons = ["* * * * *"]
