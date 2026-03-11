@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../config.dart';
@@ -27,9 +28,32 @@ class _WebAppScreenState extends State<WebAppScreen> {
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.white)
+      ..setBackgroundColor(const Color(0xFFFFF8E7))
       ..setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri == null) {
+              return NavigationDecision.navigate;
+            }
+            // 앱 내부 경로: /app, /dashboard, /setup, /history, /settings, /auth, /api, /signup, /logout
+            final path = uri.path;
+            final isAppPath = path.startsWith('/app') ||
+                path.startsWith('/dashboard') ||
+                path.startsWith('/setup') ||
+                path.startsWith('/history') ||
+                path.startsWith('/settings') ||
+                path.startsWith('/auth') ||
+                path.startsWith('/api') ||
+                path.startsWith('/signup') ||
+                path == '/logout' ||
+                path.startsWith('/logout');
+            if (!isAppPath && (uri.host == 'gom-hr.com' || uri.host == 'www.gom-hr.com')) {
+              launchUrl(uri, mode: LaunchMode.externalApplication);
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
           onPageStarted: (_) {
             setState(() {
               _isLoading = true;
@@ -124,14 +148,13 @@ class _WebAppScreenState extends State<WebAppScreen> {
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
-        body: SafeArea(
-          child: Stack(
-            children: [
-              WebViewWidget(controller: _controller),
-              if (_isLoading)
-                LoadingOverlay(progress: _progress),
-            ],
-          ),
+        backgroundColor: const Color(0xFFFFF8E7),
+        body: Stack(
+          children: [
+            WebViewWidget(controller: _controller),
+            if (_isLoading)
+              LoadingOverlay(progress: _progress),
+          ],
         ),
       ),
     );

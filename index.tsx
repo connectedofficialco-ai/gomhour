@@ -440,7 +440,6 @@ app.get('/signup', (c) => {
           </div>
         )}
         <form method="post" action="/auth/signup" class="space-y-4">
-          <input type="text" name="name" required placeholder="닉네임" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400" />
           <input type="email" name="email" required placeholder="이메일" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400" />
           <input type="password" name="password" required placeholder="비밀번호 (6-32자)" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400" />
           <input type="password" name="confirm_password" required placeholder="비밀번호 확인" class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400" />
@@ -455,17 +454,14 @@ app.get('/signup', (c) => {
   )
 })
 
-// 이메일 회원가입
+// 이메일 회원가입 (닉네임은 설정 페이지에서 입력)
 app.post('/auth/signup', async (c) => {
   const body = await c.req.parseBody()
-  const name = String(body.name || '').trim()
   const rawEmail = String(body.email || '').trim().toLowerCase()
   const password = String(body.password || '')
   const confirmPassword = String(body.confirm_password || '')
+  const defaultName = '이메일 사용자'
 
-  if (!name) {
-    return c.redirect(`/signup?error=${encodeURIComponent('닉네임을 입력해주세요.')}`)
-  }
   if (!rawEmail || !rawEmail.includes('@')) {
     return c.redirect(`/signup?error=${encodeURIComponent('올바른 이메일을 입력해주세요.')}`)
   }
@@ -487,14 +483,14 @@ app.post('/auth/signup', async (c) => {
     const hashed = await hashPassword(password)
     const result = await c.env.DB.prepare(
       'INSERT INTO users (email, name, password) VALUES (?, ?, ?)'
-    ).bind(rawEmail, name, hashed).run()
+    ).bind(rawEmail, defaultName, hashed).run()
 
     const userId = result.meta.last_row_id as number
     const userSession: User = {
       id: rawEmail,
       db_id: userId,
       email: rawEmail,
-      name,
+      name: defaultName,
       provider: 'local',
       couple_id: null,
       couple_code: null,
@@ -554,7 +550,7 @@ app.post('/auth/login', async (c) => {
 
     const coupleCode = await getCoupleCode(c.env.DB, dbUser.couple_id as number | null)
     const isAdminUser = (dbUser.email as string) === 'admin@gomawo.app'
-    const setupDone = isAdminUser ? false : !!(dbUser.gender && dbUser.notification_time && dbUser.name && dbUser.name !== 'Apple 사용자')
+    const setupDone = isAdminUser ? false : !!(dbUser.gender && dbUser.notification_time && dbUser.name && dbUser.name !== 'Apple 사용자' && dbUser.name !== '이메일 사용자')
     const userSession: User = {
       id: rawEmail,
       db_id: dbUser.id as number,
@@ -758,7 +754,7 @@ const handleAppleCallback = async (c: any) => {
       userId = result.meta.last_row_id as number
     }
 
-    const setupDone = !!(gender && notificationTime && name && name !== 'Apple 사용자')
+    const setupDone = !!(gender && notificationTime && name && name !== 'Apple 사용자' && name !== '이메일 사용자')
     const userSession: User = {
       id: appleId,
       db_id: userId,
@@ -944,7 +940,7 @@ app.get('/setup', async (c) => {
         <div id="setup-feedback" class="mb-4 p-4 rounded-lg hidden"></div>
         <div class="space-y-4 mb-6">
           <label class="block text-sm font-medium text-gray-700">닉네임</label>
-          <input type="text" id="setup-name" placeholder="닉네임" value={user.name} class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-400" />
+          <input type="text" id="setup-name" placeholder="닉네임" value={user.name && user.name !== 'Apple 사용자' && user.name !== '이메일 사용자' ? user.name : ''} class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-400" />
           <label class="block text-sm font-medium text-gray-700">성별</label>
           <select id="setup-gender" class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-400">
             <option value="">선택</option>
@@ -1227,7 +1223,7 @@ app.get('/settings', async (c) => {
             });
           }
           document.getElementById('delete-account').addEventListener('click', function() {
-            if (!confirm('정말 계정을 삭제할까요? 이 작업은 되돌릴 수 없습니다.')) return;
+            if (!confirm('정말 계정을 삭제할까요?')) return;
             fetch('/api/user/delete-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' })
               .then(function(r) { return r.json(); })
               .then(function(res) {
@@ -1942,23 +1938,48 @@ const scheduledHandler = async (event: ScheduledEvent, env: Bindings, ctx: Execu
     const nowTime = getKstTime()
     const today = getKstDate()
 
-    const users = await env.DB.prepare(
+    // 1) 커플 연동된 사용자
+    const coupleUsers = await env.DB.prepare(
       `SELECT u.id AS user_id, u.couple_id, u.notification_time, p.name AS partner_name
        FROM users u
        JOIN users p ON p.couple_id = u.couple_id AND p.id != u.id
        WHERE u.couple_id IS NOT NULL AND u.notification_time = ?`
     ).bind(nowTime).all()
 
-    if (!users.results.length) return
-
-    for (const row of users.results as any[]) {
+    for (const row of (coupleUsers.results || []) as any[]) {
       const tokens = await env.DB.prepare(
         `SELECT token, last_notified_date FROM device_tokens WHERE user_id = ?`
       ).bind(row.user_id).all()
 
-      for (const tokenRow of tokens.results as any[]) {
+      for (const tokenRow of (tokens.results || []) as any[]) {
         if (tokenRow.last_notified_date === today) continue
         const message = `오늘도 ${row.partner_name}에게 곰아워 한마디, 잊지 말아요💛`
+        const response = await sendApns(env, tokenRow.token, message)
+        if (response.ok) {
+          await env.DB.prepare(
+            `UPDATE device_tokens SET last_notified_date = ? WHERE token = ?`
+          ).bind(today, tokenRow.token).run()
+        } else {
+          const errorText = await response.text()
+          console.error('APNs 전송 실패:', response.status, errorText)
+        }
+      }
+    }
+
+    // 2) 커플 미연동 사용자(나중에 하기)
+    const soloUsers = await env.DB.prepare(
+      `SELECT id AS user_id FROM users
+       WHERE couple_id IS NULL AND notification_time = ?`
+    ).bind(nowTime).all()
+
+    for (const row of (soloUsers.results || []) as any[]) {
+      const tokens = await env.DB.prepare(
+        `SELECT token, last_notified_date FROM device_tokens WHERE user_id = ?`
+      ).bind(row.user_id).all()
+
+      for (const tokenRow of (tokens.results || []) as any[]) {
+        if (tokenRow.last_notified_date === today) continue
+        const message = `오늘의 곰아워 한마디, 잊지 말아요💛`
         const response = await sendApns(env, tokenRow.token, message)
         if (response.ok) {
           await env.DB.prepare(

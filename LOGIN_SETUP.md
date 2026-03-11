@@ -29,9 +29,17 @@ Apple·카카오 로그인이 안 될 때 아래를 순서대로 확인하세요
 5. **REST API 키**
    - `wrangler.toml`의 `KAKAO_CLIENT_ID`와 동일한지 확인
 
-6. **Client Secret** (선택, 보안 강화 시)
-   - 제품 설정 → 카카오 로그인 → Client Secret 발급
-   - 있으면 `wrangler secret put KAKAO_CLIENT_SECRET`으로 설정
+6. **Client Secret** (2024년 이후 대부분 필수)
+   - 제품 설정 → 카카오 로그인 → Client Secret
+   - 신규 REST API 키는 기본으로 활성화되어 있어, 토큰 발급 시 **반드시** 필요
+   - 카카오 개발자 콘솔에서 Client Secret 확인 후:
+   ```bash
+   npx wrangler secret put KAKAO_CLIENT_SECRET -c wrangler-legacy.toml
+   ```
+   - Main Worker도 사용한다면:
+   ```bash
+   npx wrangler secret put KAKAO_CLIENT_SECRET -c wrangler.toml
+   ```
 
 ---
 
@@ -81,7 +89,8 @@ Apple 로그인에 필요한 시크릿:
 - 로그인 실패 시 화면에 표시되는 **에러 메시지** 확인
 - 에러 예:
   - `카카오 로그인이 취소되었습니다` → 사용자가 취소
-  - `토큰 교환 실패` → Redirect URI 불일치 또는 Client Secret
+  - `카카오 로그인에 실패했습니다` → **가장 흔함**: Client Secret 미설정. `KAKAO_CLIENT_SECRET` 시크릿 추가 후 재시도
+  - `인증 코드가 없습니다` → Redirect URI 불일치 (콘솔에 등록한 URI와 `KAKAO_REDIRECT_URI` 정확히 일치해야 함)
   - `Apple 로그인 설정이 필요합니다` → APPLE_* 시크릿/환경변수 누락
 
 ---

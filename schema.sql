@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   gender TEXT,
   couple_id INTEGER,
   couple_linked_at TEXT,
+  met_date TEXT,
   notification_time TEXT DEFAULT '20:00',
   password TEXT,
   pin TEXT,
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS couples (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   couple_code TEXT UNIQUE NOT NULL,
+  met_date TEXT,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 

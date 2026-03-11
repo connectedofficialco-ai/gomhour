@@ -82,6 +82,42 @@ const getCoupleCode = async (db: Bindings['DB'], coupleId?: number | null) => {
   return couple ? (couple.couple_code as string) : null
 }
 
+const getCoupleMetDate = async (db: Bindings['DB'], coupleId?: number | null) => {
+  if (!coupleId) return null
+  const couple = await db.prepare(
+    'SELECT met_date FROM couples WHERE id = ?'
+  ).bind(coupleId).first()
+  return couple?.met_date as string | null
+}
+
+// 만난 날: 커플 있으면 couples에서, 없으면 users에서 (테스트용)
+const getMetDate = async (db: Bindings['DB'], userId: number, coupleId?: number | null) => {
+  if (coupleId) {
+    const d = await getCoupleMetDate(db, coupleId)
+    if (d) return d
+  }
+  const user = await db.prepare('SELECT met_date FROM users WHERE id = ?').bind(userId).first()
+  return user?.met_date as string | null
+}
+
+// 세션 검증: DB에 사용자가 없으면(삭제됨) 쿠키 삭제 후 null 반환
+const getValidUserSession = async (c: { env: Bindings } & Parameters<typeof getCookie>[0]): Promise<User | null> => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) return null
+  try {
+    const user = JSON.parse(userSessionCookie) as User
+    const dbUser = await c.env.DB.prepare('SELECT id FROM users WHERE id = ?')
+      .bind(user.db_id).first()
+    if (!dbUser) {
+      deleteCookie(c, 'user_session', { path: '/' })
+      return null
+    }
+    return user
+  } catch {
+    return null
+  }
+}
+
 const generateOauthState = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(16))
   return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
@@ -119,93 +155,220 @@ app.use('/api/*', cors())
 // 소셜 로그인 라우트 등록
 app.route('/auth/kakao', kakaoAuth)
 
+// 개인정보처리방침 - /privacy는 /privacy.html로 리다이렉트
+app.get('/privacy', (c) => c.redirect('/privacy.html'))
+
 // 렌더러 미들웨어 적용
 app.use(renderer)
 
+// 고객지원 페이지 (홈페이지 탭에서 링크)
+app.get('/support', (c) => {
+  const origin = new URL(c.req.url).origin
+  return c.render(
+    <div class="min-h-screen bg-gradient-to-b from-amber-50 to-white">
+      <header class="bg-white/80 backdrop-blur border-b border-amber-100 sticky top-0 z-10">
+        <div class="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
+          <a href={origin} class="flex items-center gap-2">
+            <span class="text-2xl">🐻</span>
+            <span class="font-bold text-gray-800">곰아워</span>
+          </a>
+          <nav class="flex gap-4 text-sm">
+            <a href={`${origin}/`} class="text-gray-600 hover:text-amber-600 transition">홈</a>
+            <a href={`${origin}/support`} class="text-amber-600 font-medium">고객지원</a>
+            <a href={`${origin}/privacy`} class="text-gray-600 hover:text-amber-600 transition">개인정보처리방침</a>
+          </nav>
+        </div>
+      </header>
+      <section class="max-w-2xl mx-auto px-4 py-16 text-center">
+        <h1 class="text-4xl font-bold text-gray-800 mb-4">곰아워 고객지원</h1>
+        <p class="text-lg text-gray-600">궁금한 점이 있으시면 언제든 문의해 주세요.</p>
+      </section>
+      <section class="max-w-2xl mx-auto px-4 pb-12">
+        <div class="bg-white rounded-2xl shadow-lg border border-amber-100 overflow-hidden">
+          <div class="p-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">연락처 정보</h2>
+            <p class="text-gray-600 mb-6">앱 이용 문의, 버그 신고, 기능 제안 등 언제든 연락 주세요.</p>
+            <div class="space-y-4">
+              <div class="flex items-start gap-3">
+                <span class="text-amber-500 text-lg">📧</span>
+                <div>
+                  <p class="font-semibold text-gray-800">이메일</p>
+                  <a href="mailto:connected.official.co@gmail.com" class="text-amber-600 hover:underline">
+                    connected.official.co@gmail.com
+                  </a>
+                </div>
+              </div>
+              <div class="flex items-start gap-3">
+                <span class="text-amber-500 text-lg">🏢</span>
+                <div>
+                  <p class="font-semibold text-gray-800">운영자</p>
+                  <p class="text-gray-600">Connected Official Co.</p>
+                </div>
+              </div>
+              <div class="flex items-start gap-3">
+                <span class="text-amber-500 text-lg">🔗</span>
+                <div>
+                  <p class="font-semibold text-gray-800">관련 링크</p>
+                  <a href={`${origin}/`} class="block text-amber-600 hover:underline">홈페이지</a>
+                  <a href={`${origin}/privacy`} class="block text-amber-600 hover:underline">개인정보처리방침</a>
+                </div>
+              </div>
+            </div>
+            <a
+              href="mailto:connected.official.co@gmail.com"
+              class="inline-flex items-center gap-2 mt-6 px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl transition"
+            >
+              이메일로 문의하기
+              <i class="fas fa-external-link-alt text-sm"></i>
+            </a>
+          </div>
+        </div>
+      </section>
+      <section class="max-w-2xl mx-auto px-4 pb-16">
+        <h2 class="text-xl font-bold text-gray-800 mb-6">자주 묻는 질문</h2>
+        <div class="space-y-3">
+          <details class="bg-white rounded-xl border border-amber-100 shadow-sm group">
+            <summary class="px-6 py-4 cursor-pointer font-medium text-gray-800 list-none flex justify-between items-center">
+              계정을 삭제하려면?
+              <i class="fas fa-chevron-down text-amber-500 group-open:rotate-180 transition-transform"></i>
+            </summary>
+            <p class="px-6 pb-4 text-gray-600 text-sm">앱 실행 → 마이페이지 → 계정 삭제에서 바로 삭제할 수 있습니다. 복구가 불가능하니 신중히 진행해 주세요.</p>
+          </details>
+          <details class="bg-white rounded-xl border border-amber-100 shadow-sm group">
+            <summary class="px-6 py-4 cursor-pointer font-medium text-gray-800 list-none flex justify-between items-center">
+              비밀번호를 잊어버렸어요
+              <i class="fas fa-chevron-down text-amber-500 group-open:rotate-180 transition-transform"></i>
+            </summary>
+            <p class="px-6 pb-4 text-gray-600 text-sm">이메일 로그인을 사용 중이시면 로그인 화면에서 비밀번호 찾기를 이용해 주세요. 소셜 로그인(카카오, 애플) 사용자는 앱에서 비밀번호 재설정이 필요하지 않습니다.</p>
+          </details>
+          <details class="bg-white rounded-xl border border-amber-100 shadow-sm group">
+            <summary class="px-6 py-4 cursor-pointer font-medium text-gray-800 list-none flex justify-between items-center">
+              커플 코드는 어떻게 사용하나요?
+              <i class="fas fa-chevron-down text-amber-500 group-open:rotate-180 transition-transform"></i>
+            </summary>
+            <p class="px-6 pb-4 text-gray-600 text-sm">마이페이지에서 내 커플 코드를 생성한 뒤, 상대방에게 공유하세요. 상대방은 상대방 계정 연동하기 메뉴에서 해당 코드를 입력해 연동할 수 있습니다.</p>
+          </details>
+          <details class="bg-white rounded-xl border border-amber-100 shadow-sm group">
+            <summary class="px-6 py-4 cursor-pointer font-medium text-gray-800 list-none flex justify-between items-center">
+              앱 사용 방법이 궁금해요
+              <i class="fas fa-chevron-down text-amber-500 group-open:rotate-180 transition-transform"></i>
+            </summary>
+            <p class="px-6 pb-4 text-gray-600 text-sm">곰아워는 커플이 매일 한 마디씩 기록을 남기는 앱입니다. 회원가입 후 커플과 연동하면 함께 곰아워를 쌓아갈 수 있어요. 더 자세한 안내가 필요하시면 위 이메일로 문의해 주세요.</p>
+          </details>
+        </div>
+      </section>
+      <footer class="border-t border-amber-100 bg-white/50 py-8">
+        <div class="max-w-2xl mx-auto px-4 text-center text-sm text-gray-500">
+          <p class="mb-2">© 곰아워 (gom-hr.com)</p>
+          <div class="flex justify-center gap-6">
+            <a href={`${origin}/`} class="hover:text-amber-600 transition">홈</a>
+            <a href={`${origin}/privacy`} class="hover:text-amber-600 transition">개인정보처리방침</a>
+          </div>
+        </div>
+      </footer>
+    </div>,
+    { title: '고객지원 - 곰아워' }
+  )
+})
+
+// 로그인 페이지 렌더 (공통)
+const renderLoginPage = (errorMessage?: string) => (
+  <div class="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full mb-6 shadow-lg">
+          <i class="fas fa-rocket text-4xl text-white"></i>
+        </div>
+        <h1 class="text-4xl font-bold text-gray-800 mb-3">환영합니다!</h1>
+        <p class="text-gray-600 text-lg">소셜 또는 이메일로 로그인하세요</p>
+      </div>
+
+      {errorMessage && (
+        <div class="mb-6 p-4 rounded-lg text-sm bg-red-100 text-red-700 border border-red-300 flex items-center">
+          <i class="fas fa-exclamation-circle mr-2"></i>
+          {errorMessage}
+        </div>
+      )}
+
+      <div class="space-y-4">
+        <a 
+          href="/auth/apple/login"
+          class="flex items-center justify-center py-4 px-6 border-2 border-gray-900 rounded-xl bg-black hover:bg-gray-900 transition-all duration-300 hover:shadow-lg transform hover:-translate-y-1 group"
+        >
+          <i class="fab fa-apple text-white text-2xl mr-3 group-hover:scale-110 transition-transform"></i>
+          <span class="text-base font-semibold text-white">Apple로 계속하기</span>
+        </a>
+        <a 
+          href="/auth/kakao/login"
+          class="flex items-center justify-center py-4 px-6 border-2 border-yellow-400 rounded-xl bg-yellow-400 hover:bg-yellow-500 transition-all duration-300 hover:shadow-lg transform hover:-translate-y-1 group"
+        >
+          <i class="fas fa-comment text-gray-800 text-2xl mr-3 group-hover:scale-110 transition-transform"></i>
+          <span class="text-base font-semibold text-gray-800">카카오로 계속하기</span>
+        </a>
+      </div>
+
+      <div class="my-6 flex items-center">
+        <div class="flex-1 h-px bg-gray-200"></div>
+        <span class="px-3 text-xs text-gray-400">또는 이메일로</span>
+        <div class="flex-1 h-px bg-gray-200"></div>
+      </div>
+
+      <form method="post" action="/auth/login" class="space-y-4">
+        <input
+          type="email"
+          name="email"
+          required
+          class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+          placeholder="이메일"
+        />
+        <input
+          type="password"
+          name="password"
+          required
+          class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+          placeholder="비밀번호"
+        />
+        <button
+          type="submit"
+          class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all"
+          style="background: linear-gradient(135deg, #6366F1, #4F46E5);"
+        >
+          로그인
+        </button>
+      </form>
+
+      <div class="mt-5 text-center">
+        <a href="/signup" class="text-sm text-indigo-600 hover:underline">이메일로 회원가입</a>
+      </div>
+
+      <div class="mt-6 text-center">
+        <p class="text-xs text-gray-500">
+          로그인하시면 <a href="#" class="text-indigo-600 hover:underline">이용약관</a> 및 
+          <a href="#" class="text-indigo-600 hover:underline ml-1">개인정보처리방침</a>에 동의하게 됩니다.
+        </p>
+      </div>
+    </div>
+  </div>
+)
+
 // 로그인 페이지 (소셜 + 이메일)
 app.get('/', (c) => {
-  // URL에서 에러 메시지 확인
   const errorMessage = c.req.query('error')
-  
-  return c.render(
-    <div class="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md">
-        <div class="text-center mb-8">
-          <div class="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full mb-6 shadow-lg">
-            <i class="fas fa-rocket text-4xl text-white"></i>
-          </div>
-          <h1 class="text-4xl font-bold text-gray-800 mb-3">환영합니다!</h1>
-          <p class="text-gray-600 text-lg">소셜 또는 이메일로 로그인하세요</p>
-        </div>
+  return c.render(renderLoginPage(errorMessage), { title: '소셜 로그인 - Web App' })
+})
 
-        {errorMessage && (
-          <div class="mb-6 p-4 rounded-lg text-sm bg-red-100 text-red-700 border border-red-300 flex items-center">
-            <i class="fas fa-exclamation-circle mr-2"></i>
-            {errorMessage}
-          </div>
-        )}
-
-        <div class="space-y-4">
-          <a 
-            href="/auth/apple/login"
-            class="flex items-center justify-center py-4 px-6 border-2 border-gray-900 rounded-xl bg-black hover:bg-gray-900 transition-all duration-300 hover:shadow-lg transform hover:-translate-y-1 group"
-          >
-            <i class="fab fa-apple text-white text-2xl mr-3 group-hover:scale-110 transition-transform"></i>
-            <span class="text-base font-semibold text-white">Apple로 계속하기</span>
-          </a>
-          <a 
-            href="/auth/kakao/login"
-            class="flex items-center justify-center py-4 px-6 border-2 border-yellow-400 rounded-xl bg-yellow-400 hover:bg-yellow-500 transition-all duration-300 hover:shadow-lg transform hover:-translate-y-1 group"
-          >
-            <i class="fas fa-comment text-gray-800 text-2xl mr-3 group-hover:scale-110 transition-transform"></i>
-            <span class="text-base font-semibold text-gray-800">카카오로 계속하기</span>
-          </a>
-        </div>
-
-        <div class="my-6 flex items-center">
-          <div class="flex-1 h-px bg-gray-200"></div>
-          <span class="px-3 text-xs text-gray-400">또는 이메일로</span>
-          <div class="flex-1 h-px bg-gray-200"></div>
-        </div>
-
-        <form method="post" action="/auth/login" class="space-y-4">
-          <input
-            type="email"
-            name="email"
-            required
-            class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
-            placeholder="이메일"
-          />
-          <input
-            type="password"
-            name="password"
-            required
-            class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
-            placeholder="비밀번호"
-          />
-          <button
-            type="submit"
-            class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all"
-            style="background: linear-gradient(135deg, #6366F1, #4F46E5);"
-          >
-            로그인
-          </button>
-        </form>
-
-        <div class="mt-5 text-center">
-          <a href="/signup" class="text-sm text-indigo-600 hover:underline">이메일로 회원가입</a>
-        </div>
-
-        <div class="mt-6 text-center">
-          <p class="text-xs text-gray-500">
-            로그인하시면 <a href="#" class="text-indigo-600 hover:underline">이용약관</a> 및 
-            <a href="#" class="text-indigo-600 hover:underline ml-1">개인정보처리방침</a>에 동의하게 됩니다.
-          </p>
-        </div>
-      </div>
-    </div>,
-    { title: '소셜 로그인 - Web App' }
-  )
+// 앱 로그인 페이지 (/app, /app/login - Flutter WebView 진입점)
+app.get('/app', async (c) => {
+  const user = await getValidUserSession(c)
+  if (user) {
+    if (user.setup_done) return c.redirect('/dashboard')
+    return c.redirect('/setup')
+  }
+  return c.redirect('/app/login')
+})
+app.get('/app/login', (c) => {
+  const errorMessage = c.req.query('error')
+  return c.render(renderLoginPage(errorMessage), { title: '소셜 로그인 - Web App' })
 })
 
 // 회원가입 페이지 (이메일)
@@ -231,13 +394,6 @@ app.get('/signup', (c) => {
         )}
 
         <form method="post" action="/auth/signup" class="space-y-4">
-          <input
-            type="text"
-            name="name"
-            required
-            class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
-            placeholder="닉네임"
-          />
           <input
             type="email"
             name="email"
@@ -269,7 +425,7 @@ app.get('/signup', (c) => {
         </form>
 
         <div class="mt-5 text-center">
-          <a href="/" class="text-sm text-indigo-600 hover:underline">이미 계정이 있어요</a>
+          <a href="/app/login" class="text-sm text-indigo-600 hover:underline">이미 계정이 있어요</a>
         </div>
       </div>
     </div>,
@@ -277,17 +433,14 @@ app.get('/signup', (c) => {
   )
 })
 
-// 이메일 회원가입
+// 이메일 회원가입 (닉네임은 설정 페이지에서 입력)
 app.post('/auth/signup', async (c) => {
   const body = await c.req.parseBody()
-  const name = String(body.name || '').trim()
   const rawEmail = String(body.email || '').trim().toLowerCase()
   const password = String(body.password || '')
   const confirmPassword = String(body.confirm_password || '')
+  const defaultName = '이메일 사용자'
 
-  if (!name) {
-    return c.redirect(`/signup?error=${encodeURIComponent('닉네임을 입력해주세요.')}`)
-  }
   if (!rawEmail || !rawEmail.includes('@')) {
     return c.redirect(`/signup?error=${encodeURIComponent('올바른 이메일을 입력해주세요.')}`)
   }
@@ -309,14 +462,14 @@ app.post('/auth/signup', async (c) => {
     const hashed = await hashPassword(password)
     const result = await c.env.DB.prepare(
       'INSERT INTO users (email, name, password) VALUES (?, ?, ?)'
-    ).bind(rawEmail, name, hashed).run()
+    ).bind(rawEmail, defaultName, hashed).run()
 
     const userId = result.meta.last_row_id as number
     const userSession: User = {
       id: rawEmail,
       db_id: userId,
       email: rawEmail,
-      name,
+      name: defaultName,
       provider: 'local',
       couple_id: null,
       couple_code: null,
@@ -328,9 +481,17 @@ app.post('/auth/signup', async (c) => {
 
     setCookie(c, 'user_session', JSON.stringify(userSession), {
       path: '/',
+      domain: 'gom-hr.com',
       httpOnly: true,
       secure: false,
       maxAge: 60 * 60 * 24 * 7,
+      sameSite: 'Lax',
+    })
+    setCookie(c, 'from_app', '1', {
+      path: '/',
+      domain: 'gom-hr.com',
+      httpOnly: false,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
     })
 
@@ -342,13 +503,15 @@ app.post('/auth/signup', async (c) => {
 })
 
 // 이메일 로그인
+const loginErrorRedirect = (msg: string) => `/app/login?error=${encodeURIComponent(msg)}`
+
 app.post('/auth/login', async (c) => {
   const body = await c.req.parseBody()
   const rawEmail = String(body.email || '').trim().toLowerCase()
   const password = String(body.password || '')
 
   if (!rawEmail || !rawEmail.includes('@') || !password) {
-    return c.redirect(`/?error=${encodeURIComponent('이메일과 비밀번호를 입력해주세요.')}`)
+    return c.redirect(loginErrorRedirect('이메일과 비밀번호를 입력해주세요.'))
   }
 
   try {
@@ -357,13 +520,13 @@ app.post('/auth/login', async (c) => {
     ).bind(rawEmail).first()
 
     if (!dbUser || !dbUser.password) {
-      return c.redirect(`/?error=${encodeURIComponent('이메일 또는 비밀번호가 올바르지 않습니다.')}`)
+      return c.redirect(loginErrorRedirect('이메일 또는 비밀번호가 올바르지 않습니다.'))
     }
 
     const storedPassword = dbUser.password as string
     const isValid = await verifyPassword(password, storedPassword)
     if (!isValid) {
-      return c.redirect(`/?error=${encodeURIComponent('이메일 또는 비밀번호가 올바르지 않습니다.')}`)
+      return c.redirect(loginErrorRedirect('이메일 또는 비밀번호가 올바르지 않습니다.'))
     }
 
     // 레거시(평문) 비밀번호면 해시로 업그레이드
@@ -376,7 +539,7 @@ app.post('/auth/login', async (c) => {
 
     const coupleCode = await getCoupleCode(c.env.DB, dbUser.couple_id as number | null)
     const isAdminUser = (dbUser.email as string) === 'admin@gomawo.app'
-    const setupDone = isAdminUser ? false : !!(dbUser.gender && dbUser.notification_time && dbUser.name && dbUser.name !== 'Apple 사용자')
+    const setupDone = isAdminUser ? false : !!(dbUser.gender && dbUser.notification_time && dbUser.name && dbUser.name !== 'Apple 사용자' && dbUser.name !== '이메일 사용자')
     const userSession: User = {
       id: rawEmail,
       db_id: dbUser.id as number,
@@ -394,15 +557,24 @@ app.post('/auth/login', async (c) => {
 
     setCookie(c, 'user_session', JSON.stringify(userSession), {
       path: '/',
+      domain: 'gom-hr.com',
       httpOnly: true,
       secure: false,
       maxAge: 60 * 60 * 24 * 7,
+      sameSite: 'Lax',
+    })
+    setCookie(c, 'from_app', '1', {
+      path: '/',
+      domain: 'gom-hr.com',
+      httpOnly: false,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
     })
 
     if ((dbUser.email as string) === 'admin@gomawo.app') {
       setCookie(c, 'admin_force_setup', '1', {
         path: '/',
+        domain: 'gom-hr.com',
         httpOnly: true,
         secure: false,
         maxAge: 60 * 10,
@@ -413,7 +585,7 @@ app.post('/auth/login', async (c) => {
     return c.redirect('/dashboard')
   } catch (error) {
     console.error('로그인 오류:', error)
-    return c.redirect(`/?error=${encodeURIComponent('로그인 처리 중 오류가 발생했습니다.')}`)
+    return c.redirect(loginErrorRedirect('로그인 처리 중 오류가 발생했습니다.'))
   }
 })
 
@@ -423,12 +595,13 @@ app.get('/auth/apple/login', (c) => {
   const redirectUri = c.env.APPLE_REDIRECT_URI
 
   if (!clientId || !redirectUri) {
-    return c.redirect(`/?error=${encodeURIComponent('Apple 로그인 설정이 필요합니다.')}`)
+    return c.redirect(`/app/login?error=${encodeURIComponent('Apple 로그인 설정이 필요합니다.')}`)
   }
 
   const state = generateOauthState()
   setCookie(c, 'apple_oauth_state', state, {
     path: '/',
+    domain: 'gom-hr.com',
     httpOnly: true,
     secure: true,
     maxAge: 60 * 10,
@@ -446,11 +619,13 @@ app.get('/auth/apple/login', (c) => {
   return c.redirect(authUrl.toString())
 })
 
+const appleErrorRedirect = (msg: string) => `/app/login?error=${encodeURIComponent(msg)}`
+
 const handleAppleCallback = async (c: any) => {
   const body = c.req.method === 'POST' ? await c.req.parseBody() : {}
   const error = c.req.query('error') || body.error
   if (error) {
-    return c.redirect(`/?error=${encodeURIComponent('Apple 로그인이 취소되었습니다.')}`)
+    return c.redirect(appleErrorRedirect('Apple 로그인이 취소되었습니다.'))
   }
 
   const code = c.req.query('code') || body.code
@@ -458,14 +633,14 @@ const handleAppleCallback = async (c: any) => {
   const stateCookie = getCookie(c, 'apple_oauth_state')
 
   if (!code || !state || !stateCookie || state !== stateCookie) {
-    return c.redirect(`/?error=${encodeURIComponent('Apple 로그인 인증에 실패했습니다.')}`)
+    return c.redirect(appleErrorRedirect('Apple 로그인 인증에 실패했습니다.'))
   }
 
   try {
     const clientId = c.env.APPLE_CLIENT_ID
     const redirectUri = c.env.APPLE_REDIRECT_URI
     if (!clientId || !redirectUri) {
-      return c.redirect(`/?error=${encodeURIComponent('Apple 로그인 설정이 필요합니다.')}`)
+      return c.redirect(appleErrorRedirect('Apple 로그인 설정이 필요합니다.'))
     }
 
     const clientSecret = await createAppleClientSecret(c.env)
@@ -484,12 +659,12 @@ const handleAppleCallback = async (c: any) => {
     if (!tokenResponse.ok) {
       const errorText = await tokenResponse.text()
       console.error('Apple token exchange failed:', errorText)
-      return c.redirect(`/?error=${encodeURIComponent('Apple 로그인에 실패했습니다.')}`)
+      return c.redirect(appleErrorRedirect('Apple 로그인에 실패했습니다.'))
     }
 
     const tokenData = await tokenResponse.json() as { id_token?: string }
     if (!tokenData.id_token) {
-      return c.redirect(`/?error=${encodeURIComponent('Apple 로그인 정보가 부족합니다.')}`)
+      return c.redirect(appleErrorRedirect('Apple 로그인 정보가 부족합니다.'))
     }
 
     const { payload } = await jwtVerify(tokenData.id_token, appleJwks, {
@@ -567,16 +742,24 @@ const handleAppleCallback = async (c: any) => {
 
     setCookie(c, 'user_session', JSON.stringify(userSession), {
       path: '/',
+      domain: 'gom-hr.com',
       httpOnly: true,
       secure: false,
       maxAge: 60 * 60 * 24 * 7,
+      sameSite: 'Lax',
+    })
+    setCookie(c, 'from_app', '1', {
+      path: '/',
+      domain: 'gom-hr.com',
+      httpOnly: false,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
     })
 
     return c.redirect('/dashboard')
   } catch (error) {
     console.error('Apple OAuth error:', error)
-    return c.redirect(`/?error=${encodeURIComponent('로그인 처리 중 오류가 발생했습니다.')}`)
+    return c.redirect(appleErrorRedirect('로그인 처리 중 오류가 발생했습니다.'))
   }
 }
 
@@ -586,33 +769,31 @@ app.post('/auth/apple/callback', handleAppleCallback)
 
 // 대시보드 페이지 → 감사 일기 메인 화면으로 변경
 app.get('/dashboard', async (c) => {
-  // 쿠키에서 사용자 세션 정보 가져오기
-  const userSessionCookie = getCookie(c, 'user_session')
-  let user: User | null = null
-  
-  if (userSessionCookie) {
-    try {
-      user = JSON.parse(userSessionCookie) as User
-    } catch (e) {
-      // 파싱 실패 시 null 유지
-    }
-  }
-
-  // 로그인하지 않은 경우 로그인 페이지로 리다이렉트
+  const user = await getValidUserSession(c)
   if (!user) {
-    return c.redirect('/')
+    return c.redirect('/app/login')
   }
 
-  // DB 기준으로 최신 사용자 정보 확인
+  // DB 기준으로 최신 사용자 정보 확인 (닉네임 포함 - DB가 단일 진실 공급원)
   const dbUser = await c.env.DB.prepare(
-    'SELECT gender, notification_time, couple_id FROM users WHERE id = ?'
+    'SELECT name, gender, notification_time, couple_id FROM users WHERE id = ?'
   ).bind(user.db_id).first()
 
+  const effectiveName = (dbUser?.name as string | null) || user.name
   const effectiveGender = (dbUser?.gender as string | null) || user.gender
   const effectiveNotificationTime = (dbUser?.notification_time as string | null) || user.notification_time
   const effectiveCoupleId = (dbUser?.couple_id as number | null) ?? user.couple_id
 
-  const needsNickname = !user.name || user.name === 'Apple 사용자'
+  // 상대방과 실제 연동됐는지 (커플에 2명 이상일 때만)
+  let isPartnerLinked = false
+  if (effectiveCoupleId) {
+    const coupleCount = await c.env.DB.prepare(
+      'SELECT COUNT(*) as count FROM users WHERE couple_id = ?'
+    ).bind(effectiveCoupleId).first()
+    isPartnerLinked = (coupleCount?.count as number) >= 2
+  }
+
+  const needsNickname = !effectiveName || effectiveName === 'Apple 사용자' || effectiveName === '이메일 사용자'
   const forceSetupForAdmin = user.email === 'admin@gomawo.app' && getCookie(c, 'admin_force_setup') === '1'
 
   // 닉네임/성별/알림시간이 설정되지 않았으면 설정 페이지로 리다이렉트
@@ -620,32 +801,46 @@ app.get('/dashboard', async (c) => {
     return c.redirect('/setup')
   }
 
-  const userName = user?.name || '사용자'
+  const userName = effectiveName || '사용자'
   const userPicture = user?.picture || ''
   const pinRow = await c.env.DB.prepare(
     'SELECT pin FROM users WHERE id = ?'
   ).bind(user.db_id).first()
   const hasPin = !!pinRow?.pin
+  let metDate = ''
+  try {
+    metDate = (await getMetDate(c.env.DB, user.db_id, effectiveCoupleId)) || ''
+  } catch { /* met_date 컬럼 없을 수 있음 */ }
   
   return c.render(
     <div class="min-h-screen" style="background: linear-gradient(to bottom, #FFF8E7, #FFE4B5);">
+      {/* 상단 헤더 - 서약서 보기 버튼 */}
+      <div class="max-w-md mx-auto px-4 pt-6 pb-2 flex justify-end">
+        <button id="show-pledge-btn" class="p-2.5 rounded-full bg-white shadow-md hover:shadow-lg transition-all hover:scale-105 text-xl" title="우리 약속 다시 보기">📝</button>
+      </div>
       {/* 메인 컨텐츠 */}
-      <div class="max-w-md mx-auto px-4 pt-6 pb-6">
-          {!effectiveCoupleId && (
+      <div class="max-w-md mx-auto px-4 pt-2 pb-6">
+          {!isPartnerLinked && (
           <div class="mb-4 p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl">
             <p class="text-sm text-gray-700 mb-3 text-center">
               커플 연동을 하면<br/>
               서로에게 남긴 곰아워 메세지를 같이 볼 수 있어요!
             </p>
             <a href="/settings" class="block text-center px-6 py-2 bg-amber-400 text-white rounded-xl hover:bg-amber-500 transition font-semibold">
-              지금 연동하기
+              당장 연동하기
             </a>
           </div>
         )}
-        {/* 감사 카운터 */}
+        {/* 감사 카운터 + 만난 날 */}
         <div class="bg-white rounded-3xl shadow-lg p-6 mb-6">
-          <p class="text-center text-gray-700 text-base mb-2">
-            우리는 총 <span class="text-3xl font-bold text-amber-600 mx-1" id="gratitude-count">0</span>일 동안 함께 곰아워했어요
+          {metDate && (
+            <p class="text-center text-gray-600 text-base mb-3">
+              우리가 만난 지 <span class="text-xl font-bold text-amber-600" id="met-days-count">+0</span>일
+              <span class="ml-1">💕</span>
+            </p>
+          )}
+          <p class="text-center text-gray-700 text-base">
+            이번 달엔 총 <span class="text-3xl font-bold text-amber-600 mx-1" id="gratitude-count">0</span>일 동안 함께 곰아워했어요
             <span class="ml-1">💛</span>
           </p>
         </div>
@@ -681,8 +876,8 @@ app.get('/dashboard', async (c) => {
       </div>
 
       {/* 하단 네비게이션 */}
-      <div class="fixed bottom-0 left-0 right-0 bg-gray-400 bg-opacity-90 backdrop-blur-sm shadow-lg">
-        <div class="max-w-md mx-auto px-8 py-4">
+      <div class="fixed bottom-0 left-0 right-0 py-4" style="background: linear-gradient(to top, rgba(255,248,231,0.98), rgba(255,228,181,0.95)); padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+        <div class="max-w-md mx-auto px-8">
           <div class="flex items-center justify-between">
             <a href="/dashboard" class="flex flex-col items-center space-y-1 text-yellow-400">
               <div class="w-12 h-12 rounded-full bg-yellow-400 flex items-center justify-center shadow-md">
@@ -785,11 +980,110 @@ app.get('/dashboard', async (c) => {
         </div>
       </div>
 
+      {/* 곰아워 약속 모달 - 설정 완료 후 첫 메인 진입 시 */}
+      <div id="promise-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 text-center border-4 border-amber-400">
+          <img src="/static/promise-bears.png" alt="곰아워" class="w-32 h-32 mx-auto mb-4 object-contain" onerror="this.onerror=null;this.src='/static/bear-couple.png'" />
+          <h3 class="text-xl font-bold text-gray-800 mb-2">우리의 약속</h3>
+          <p class="text-base text-gray-800 font-semibold mb-6">
+            누가 더 자주 했는지보다,<br/>
+            함께 마음을 나누고 있다는 게<br/>
+            더 소중한 거 아시죠? 🧡
+          </p>
+          <div class="space-y-4 text-left mb-6">
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="promise-1" class="w-5 h-5 rounded border-2 border-amber-400 accent-amber-500 focus:ring-amber-400" />
+              <span class="text-gray-800">곰아워 횟수로 사랑의 크기 재지 않기</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="promise-2" class="w-5 h-5 rounded border-2 border-amber-400 accent-amber-500 focus:ring-amber-400" />
+              <span class="text-gray-800">내가 더 많이 했다고 삐치지 말기</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="promise-3" class="w-5 h-5 rounded border-2 border-amber-400 accent-amber-500 focus:ring-amber-400" />
+              <span class="text-gray-800">상대가 적게 해도 이해해주기</span>
+            </label>
+          </div>
+          <p class="text-xs text-amber-600 mb-4">세 가지 모두 체크하면 시작할 수 있어요</p>
+        </div>
+      </div>
+
+      {/* 서약서 다시 보기 모달 - 언제든 귀엽게 볼 수 있어요 */}
+      <div id="pledge-view-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[60] flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 text-center border-4 border-amber-300">
+          <img src="/static/promise-bears.png" alt="곰아워" class="w-28 h-28 mx-auto mb-3 object-contain" onerror="this.onerror=null;this.src='/static/bear-couple.png'" />
+          <h3 class="text-xl font-bold text-amber-700 mb-1">우리의 약속</h3>
+          <p class="text-base text-gray-800 font-semibold mb-5">
+            누가 더 자주 했는지보다,<br/>
+            함께 마음을 나누고 있다는 게<br/>
+            더 소중한 거 아시죠? 🧡
+          </p>
+          <div class="space-y-3 text-left mb-6 bg-amber-50 rounded-2xl p-4 border-2 border-amber-100">
+            <p class="flex items-center gap-2 text-gray-800"><i class="fas fa-check-circle text-amber-500"></i> 곰아워 횟수로 사랑의 크기 재지 않기</p>
+            <p class="flex items-center gap-2 text-gray-800"><i class="fas fa-check-circle text-amber-500"></i> 내가 더 많이 했다고 삐치지 말기</p>
+            <p class="flex items-center gap-2 text-gray-800"><i class="fas fa-check-circle text-amber-500"></i> 상대가 적게 해도 이해해주기</p>
+          </div>
+          <button id="close-pledge-view" class="w-full py-3 rounded-xl font-bold text-white text-base shadow-lg" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+            확인했어요!
+          </button>
+        </div>
+      </div>
+
       <script dangerouslySetInnerHTML={{
         __html: `
           // 현재 사용자 정보
           const currentUser = ${JSON.stringify(user)};
           const hasPin = ${JSON.stringify(hasPin)};
+          const metDate = ${JSON.stringify(metDate)};
+          
+          // 서약서 다시 보기 버튼
+          (function() {
+            const showBtn = document.getElementById('show-pledge-btn');
+            const pledgeModal = document.getElementById('pledge-view-modal');
+            const closeBtn = document.getElementById('close-pledge-view');
+            if (showBtn && pledgeModal) {
+              showBtn.addEventListener('click', () => pledgeModal.classList.remove('hidden'));
+            }
+            if (closeBtn && pledgeModal) {
+              closeBtn.addEventListener('click', () => pledgeModal.classList.add('hidden'));
+            }
+            if (pledgeModal) {
+              pledgeModal.addEventListener('click', (e) => { if (e.target === pledgeModal) pledgeModal.classList.add('hidden'); });
+            }
+          })();
+          
+          // 곰아워 약속 모달 - 설정 완료 후 첫 진입 시 (force=1 또는 from_setup=1이면 무조건 표시)
+          (function() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('show_promise') !== '1') return;
+            const forceShow = params.get('force') === '1' || params.get('from_setup') === '1';
+            if (!forceShow && localStorage.getItem('gomawo_promise_done')) return;
+            const modal = document.getElementById('promise-modal');
+            const c1 = document.getElementById('promise-1');
+            const c2 = document.getElementById('promise-2');
+            const c3 = document.getElementById('promise-3');
+            if (!modal || !c1 || !c2 || !c3) return;
+            modal.classList.remove('hidden');
+            function checkAll() {
+              if (c1.checked && c2.checked && c3.checked) {
+                if (!params.get('force')) localStorage.setItem('gomawo_promise_done', '1');
+                modal.classList.add('hidden');
+                history.replaceState({}, '', '/dashboard');
+              }
+            }
+            c1.addEventListener('change', checkAll);
+            c2.addEventListener('change', checkAll);
+            c3.addEventListener('change', checkAll);
+          })();
+          
+          // 만난 날 +N일 계산
+          if (metDate && document.getElementById('met-days-count')) {
+            const met = new Date(metDate + 'T00:00:00');
+            const today = new Date();
+            const diffTime = today - met;
+            const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+            document.getElementById('met-days-count').textContent = '+' + (diffDays >= 0 ? diffDays : 0);
+          }
           
           // 메시지 데이터 (DB에서 불러옴)
           let messagesData = {};
@@ -1044,22 +1338,12 @@ app.get('/dashboard', async (c) => {
 
 // 커플 설정 페이지
 app.get('/setup', async (c) => {
-  const userSessionCookie = getCookie(c, 'user_session')
-  let user: User | null = null
-  
-  if (userSessionCookie) {
-    try {
-      user = JSON.parse(userSessionCookie) as User
-    } catch (e) {
-      return c.redirect('/')
-    }
-  }
-
+  const user = await getValidUserSession(c)
   if (!user) {
-    return c.redirect('/')
+    return c.redirect('/app/login')
   }
 
-  const needsNickname = !user.name || user.name === 'Apple 사용자'
+  const needsNickname = !user.name || user.name === 'Apple 사용자' || user.name === '이메일 사용자'
   const forceSetupForAdmin = user.email === 'admin@gomawo.app' && getCookie(c, 'admin_force_setup') === '1'
 
   // 이미 설정을 완료한 사용자인지 확인 (닉네임/성별/알림시간이 있으면 설정 완료)
@@ -1089,7 +1373,7 @@ app.get('/setup', async (c) => {
             <input 
               type="text" 
               id="nickname-input"
-              value={user.email === 'admin@gomawo.app' ? '' : (user.name && user.name !== 'Apple 사용자' ? user.name : '')}
+              value={user.email === 'admin@gomawo.app' ? '' : (user.name && user.name !== 'Apple 사용자' && user.name !== '이메일 사용자' ? user.name : '')}
               class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-transparent"
               placeholder=""
             />
@@ -1117,12 +1401,10 @@ app.get('/setup', async (c) => {
           {/* 알림 시간 설정 */}
           <div class="mb-6">
             <label class="block text-sm font-bold text-gray-700 mb-3">알림 시간</label>
-            <input 
-              type="time" 
-              id="notification-time"
-              value="20:00"
-              class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-transparent time-input"
-            />
+            <div class="relative date-time-input-wrap">
+              <div class="form-input-box w-full px-4 py-3 border-2 border-gray-300 rounded-2xl bg-white text-gray-800" id="setup-time-display">오후 8:00</div>
+              <input type="time" id="notification-time" value="20:00" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+            </div>
             <p class="text-xs text-gray-500 mt-2">매일 이 시간에 메시지 작성 알림을 받아요</p>
           </div>
 
@@ -1150,7 +1432,12 @@ app.get('/setup', async (c) => {
                 </div>
               </button>
 
-              <button id="skip-setup-btn" class="w-full py-3 px-6 border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all text-center">
+              <form id="skip-setup-form" method="post" action="/setup/skip" target="_self" enctype="application/x-www-form-urlencoded" style="display:none">
+                <input type="hidden" name="name" id="skip-form-name" value="" />
+                <input type="hidden" name="gender" id="skip-form-gender" value="" />
+                <input type="hidden" name="notification_time" id="skip-form-time" value="" />
+              </form>
+              <button type="button" id="skip-setup-btn" class="w-full py-3 px-6 border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:bg-gray-50 transition-all text-center">
                 <div class="text-sm text-gray-600">
                   <i class="fas fa-clock mr-2"></i>나중에 연동하기
                 </div>
@@ -1167,6 +1454,9 @@ app.get('/setup', async (c) => {
                 <i class="fas fa-copy mr-2"></i>코드 복사
               </button>
               <p class="text-xs text-gray-600 mt-4">이 코드를 상대방에게 공유하고<br/>상대방이 입력하면 연동 완료!</p>
+              <a href="/dashboard?show_promise=1" class="block mt-4 w-full py-3 rounded-xl font-bold text-white text-base shadow-lg" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+                <i class="fas fa-paw mr-2"></i>곰아워 시작하기
+              </a>
             </div>
           </div>
 
@@ -1190,6 +1480,14 @@ app.get('/setup', async (c) => {
         __html: `
           let selectedGender = null;
           
+          const setupTimeDisplay = document.getElementById('setup-time-display');
+          const setupTimeInput = document.getElementById('notification-time');
+          const fmtSetupTime = (v) => { if (!v) return '20:00'; const [h,m]=v.split(':'); const hh=+h; return hh>=12 ? '오후 '+(hh===12?12:hh-12)+':'+(m||'00') : '오전 '+(hh||12)+':'+(m||'00'); };
+          if (setupTimeDisplay && setupTimeInput) {
+            setupTimeInput.addEventListener('input', () => { setupTimeDisplay.textContent = fmtSetupTime(setupTimeInput.value); });
+            setupTimeInput.addEventListener('change', () => { setupTimeDisplay.textContent = fmtSetupTime(setupTimeInput.value); });
+          }
+
           // 성별 선택
           document.querySelectorAll('.gender-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -1220,7 +1518,8 @@ app.get('/setup', async (c) => {
             const response = await fetch('/api/couple/create', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ gender: selectedGender, notification_time: notificationTime })
+              credentials: 'include',
+              body: JSON.stringify({ name: nickname || undefined, gender: selectedGender, notification_time: notificationTime })
             });
             
             const data = await response.json();
@@ -1269,9 +1568,10 @@ app.get('/setup', async (c) => {
             const response = await fetch('/api/couple/join', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
               body: JSON.stringify({ 
                 couple_code: coupleCode, 
-                name: nickname,
+                name: nickname || undefined,
                 gender: selectedGender,
                 notification_time: notificationTime
               })
@@ -1280,14 +1580,15 @@ app.get('/setup', async (c) => {
             const data = await response.json();
             if (data.success) {
               alert('커플 연동이 완료되었어요! 💕');
-              window.location.href = '/dashboard';
+              const target = (window.location.origin || '') + '/dashboard?show_promise=1';
+              window.location.replace(target);
             } else {
               alert(data.error || '커플 연동에 실패했습니다.');
             }
           });
 
-          // 나중에 하기 버튼
-          document.getElementById('skip-setup-btn').addEventListener('click', async () => {
+          // 나중에 하기 버튼 - fetch 우선, 실패 시 폼 제출 (WebView 호환)
+          document.getElementById('skip-setup-btn').addEventListener('click', async function() {
             const nickname = document.getElementById('nickname-input').value.trim();
             if (!nickname) {
               alert('닉네임을 입력해주세요!');
@@ -1297,31 +1598,31 @@ app.get('/setup', async (c) => {
               alert('성별을 먼저 선택해주세요!');
               return;
             }
-
-            const notificationTime = document.getElementById('notification-time').value;
-
+            const notificationTime = document.getElementById('notification-time').value || '20:00';
+            const btn = this;
+            btn.disabled = true;
+            btn.innerHTML = '<div class="text-sm text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>처리 중...</div>';
             try {
-              const response = await fetch('/api/user/skip-couple-setup', {
+              const res = await fetch('/setup/skip', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                  name: nickname,
-                  gender: selectedGender,
-                  notification_time: notificationTime
-                })
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ name: nickname || '', gender: selectedGender, notification_time: notificationTime }).toString(),
+                redirect: 'follow'
               });
-
-              const data = await response.json();
-              if (data.success) {
-                alert('나중에 커플 연동을 진행할 수 있어요! 🐻');
-                window.location.href = '/dashboard';
-              } else {
-                alert(data.error || '저장에 실패했습니다.');
+              if (res.redirected && res.url) {
+                window.location.replace(res.url);
+                return;
               }
-            } catch (error) {
-              console.error('설정 저장 오류:', error);
-              alert('설정 저장 중 오류가 발생했습니다.');
-            }
+              if (res.ok) {
+                window.location.replace('/dashboard?show_promise=1&from_setup=1');
+                return;
+              }
+            } catch (e) {}
+            document.getElementById('skip-form-name').value = nickname;
+            document.getElementById('skip-form-gender').value = selectedGender;
+            document.getElementById('skip-form-time').value = notificationTime;
+            document.getElementById('skip-setup-form').submit();
           });
         `
       }} />
@@ -1332,19 +1633,9 @@ app.get('/setup', async (c) => {
 
 // 메시지 히스토리 페이지
 app.get('/history', async (c) => {
-  const userSessionCookie = getCookie(c, 'user_session')
-  let user: User | null = null
-  
-  if (userSessionCookie) {
-    try {
-      user = JSON.parse(userSessionCookie) as User
-    } catch (e) {
-      return c.redirect('/')
-    }
-  }
-
+  const user = await getValidUserSession(c)
   if (!user) {
-    return c.redirect('/')
+    return c.redirect('/app/login')
   }
 
   // 성별이나 알림시간이 설정되지 않았으면 설정 페이지로 리다이렉트
@@ -1405,8 +1696,8 @@ app.get('/history', async (c) => {
       </div>
 
       {/* 하단 네비게이션 */}
-      <div class="fixed bottom-0 left-0 right-0 bg-gray-400 bg-opacity-90 backdrop-blur-sm shadow-lg">
-        <div class="max-w-md mx-auto px-8 py-4">
+      <div class="fixed bottom-0 left-0 right-0 py-4" style="background: linear-gradient(to top, rgba(255,248,231,0.98), rgba(255,228,181,0.95)); padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+        <div class="max-w-md mx-auto px-8">
           <div class="flex items-center justify-between">
             <a href="/dashboard" class="flex flex-col items-center space-y-1 text-gray-600 hover:text-gray-800 transition">
               <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-md">
@@ -1559,19 +1850,9 @@ app.get('/history', async (c) => {
 
 // 설정 페이지
 app.get('/settings', async (c) => {
-  const userSessionCookie = getCookie(c, 'user_session')
-  let user: User | null = null
-  
-  if (userSessionCookie) {
-    try {
-      user = JSON.parse(userSessionCookie) as User
-    } catch (e) {
-      return c.redirect('/')
-    }
-  }
-
+  const user = await getValidUserSession(c)
   if (!user) {
-    return c.redirect('/')
+    return c.redirect('/app/login')
   }
 
   // 성별이나 알림시간이 설정되지 않았으면 설정 페이지로 리다이렉트
@@ -1595,6 +1876,19 @@ app.get('/settings', async (c) => {
   const coupleCode = dbCoupleCode || user.couple_code || ''
   const userGender = (dbUser?.gender as string | null) || user.gender || ''
   const notificationTime = dbUser?.notification_time || user.notification_time || '20:00'
+  let metDate = ''
+  try {
+    metDate = (await getMetDate(c.env.DB, user.db_id, dbUser?.couple_id as number | null)) || ''
+  } catch { /* met_date 컬럼 없을 수 있음 */ }
+
+  const coupleId = dbUser?.couple_id as number | null
+  let isPartnerLinked = false
+  if (coupleId) {
+    const coupleCount = await c.env.DB.prepare(
+      'SELECT COUNT(*) as count FROM users WHERE couple_id = ?'
+    ).bind(coupleId).first()
+    isPartnerLinked = (coupleCount?.count as number) >= 2
+  }
 
   return c.render(
     <div class="min-h-screen pb-24" style="background: linear-gradient(to bottom, #FFF8E7, #FFE4B5);">
@@ -1637,7 +1931,19 @@ app.get('/settings', async (c) => {
           </div>
         </div>
 
-        {/* 내 커플 코드 */}
+        {/* 연동 여부 */}
+        <div class="bg-white rounded-3xl shadow-lg p-5 mb-6 text-center">
+          <p class="text-base font-semibold text-gray-800">
+            {isPartnerLinked ? (
+              <span class="text-black font-bold">✅연동 완료</span>
+            ) : (
+              <span class="text-gray-500">미연동</span>
+            )}
+          </p>
+        </div>
+
+        {/* 내 커플 코드 - 연동 전에만 표시 */}
+        {!isPartnerLinked && (
         <div class="bg-white rounded-3xl shadow-lg p-6 mb-6">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center">
@@ -1654,19 +1960,31 @@ app.get('/settings', async (c) => {
           </div>
           {!coupleCode && (
             <button id="create-main-code-btn" class="w-full mt-4 py-3 rounded-xl font-bold text-white text-base shadow-lg hover:shadow-xl transition-all" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
-              <i class="fas fa-plus mr-2"></i>내 커플 코드 생성하기
+              <i class="fas fa-plus mr-2"></i>생성하기
             </button>
           )}
         </div>
+        )}
 
         {/* 메뉴 리스트 */}
         <div class="bg-white rounded-3xl shadow-lg overflow-hidden mb-6">
-          <button id="partner-link-btn" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100">
+          <button id="partner-link-btn" class={`w-full flex items-center justify-between p-5 transition border-b border-gray-100 ${isPartnerLinked ? 'opacity-50 cursor-default pointer-events-none' : 'hover:bg-gray-50'}`}>
             <div class="flex items-center">
               <span class="text-2xl mr-3">🔗</span>
               <span class="text-base font-semibold text-gray-800">상대방 계정 연동하기</span>
             </div>
             <i class="fas fa-chevron-right text-gray-400"></i>
+          </button>
+
+          <button id="met-date-btn" data-partner-linked={isPartnerLinked ? 'true' : 'false'} class={`w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100 ${!isPartnerLinked ? 'opacity-50' : ''}`}>
+            <div class="flex items-center">
+              <span class="text-2xl mr-3">💕</span>
+              <span class="text-base font-semibold text-gray-800">우리가 만난 날 설정하기</span>
+            </div>
+            <div class="flex items-center gap-2">
+              {metDate ? <span class="text-sm text-amber-600">{metDate}</span> : null}
+              <i class="fas fa-chevron-right text-gray-400"></i>
+            </div>
           </button>
 
           <button id="notification-btn" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100">
@@ -1685,13 +2003,48 @@ app.get('/settings', async (c) => {
             <i class="fas fa-chevron-right text-gray-400"></i>
           </button>
 
-          <button id="password-btn" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition">
+          <button id="password-btn" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100">
             <div class="flex items-center">
               <span class="text-2xl mr-3">🔒</span>
-              <span class="text-base font-semibold text-gray-800">앱 잠금 비밀번호 설정</span>
+              <span class="text-base font-semibold text-gray-800">비밀번호 설정하기</span>
             </div>
             <i class="fas fa-chevron-right text-gray-400"></i>
           </button>
+
+          <a href="https://gom-hr.com" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100">
+            <div class="flex items-center">
+              <span class="text-2xl mr-3">🏠</span>
+              <span class="text-base font-semibold text-gray-800">홈페이지 바로가기</span>
+            </div>
+            <i class="fas fa-external-link-alt text-gray-400 text-sm"></i>
+          </a>
+
+          <button type="button" id="delete-account-btn" class="w-full flex items-center justify-between p-5 hover:bg-red-50 transition">
+            <div class="flex items-center">
+              <span class="text-2xl mr-3">🗑️</span>
+              <span class="text-base font-semibold text-red-600">계정 삭제하기</span>
+            </div>
+            <i class="fas fa-chevron-right text-gray-400"></i>
+          </button>
+        </div>
+
+        {/* 계정 삭제 확인 모달 */}
+        <div id="delete-account-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6">
+            <div class="text-center mb-6">
+              <span class="text-5xl mb-4 block">⚠️</span>
+              <h3 class="text-xl font-bold text-gray-800 mb-2">정말 계정을 삭제하시겠습니까?</h3>
+              <p class="text-sm text-gray-600 mb-1">삭제된 계정과 모든 데이터는 복구할 수 없습니다.</p>
+            </div>
+            <div class="flex gap-3">
+              <button type="button" id="cancel-delete-btn" class="flex-1 py-3 rounded-xl font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 transition">
+                취소
+              </button>
+              <button type="button" id="confirm-delete-btn" class="flex-1 py-3 rounded-xl font-bold text-white bg-red-500 hover:bg-red-600 transition">
+                삭제하기
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* 알림 시간 설정 모달 */}
@@ -1703,13 +2056,40 @@ app.get('/settings', async (c) => {
                 <i class="fas fa-times text-gray-600"></i>
               </button>
             </div>
-            <input 
-              type="time" 
-              id="new-notification-time"
-              value={notificationTime}
-              class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-transparent mb-4 time-input"
-            />
+            <div class="relative mb-4 date-time-input-wrap">
+              <div class="form-input-box w-full px-4 py-3 border-2 border-gray-300 rounded-2xl bg-white text-gray-800" id="notification-time-display">{notificationTime ? (() => { const [h,m]=(notificationTime||'').split(':'); const hh=+h; return hh>=12 ? `오후 ${hh===12?12:hh-12}:${m||'00'}` : `오전 ${hh||12}:${m||'00'}`; })() : '오후 8:00'}</div>
+              <input type="time" id="new-notification-time" value={notificationTime} class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+            </div>
             <button id="save-notification-btn" class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+              <i class="fas fa-check mr-2"></i>저장
+            </button>
+          </div>
+        </div>
+
+        {/* 커플 미연동 안내 모달 */}
+        <div id="partner-required-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[55] flex items-center justify-center p-4">
+          <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 text-center">
+            <p class="text-lg text-gray-800 mb-6">커플 연동 후 설정할 수 있어요</p>
+            <button id="close-partner-required-modal" class="w-full py-3 rounded-xl font-bold text-white text-base" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+              확인
+            </button>
+          </div>
+        </div>
+
+        {/* 우리가 만난 날 설정 모달 */}
+        <div id="met-date-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-gray-800">우리가 만난 날 설정하기</h3>
+              <button id="close-met-date-modal" class="p-2 hover:bg-gray-100 rounded-full transition">
+                <i class="fas fa-times text-gray-600"></i>
+              </button>
+            </div>
+            <div class="relative mb-4 date-time-input-wrap">
+              <div class="form-input-box w-full px-4 py-3 border-2 border-gray-300 rounded-2xl bg-white text-gray-800" id="met-date-display">{metDate ? `${metDate.split('-')[0]}. ${parseInt(metDate.split('-')[1],10)}. ${parseInt(metDate.split('-')[2],10)}.` : '날짜 선택'}</div>
+              <input type="date" id="new-met-date" value={metDate} class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+            </div>
+            <button id="save-met-date-btn" class="w-full py-3.5 rounded-xl font-bold text-white text-base shadow-lg hover:shadow-xl transition-all" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
               <i class="fas fa-check mr-2"></i>저장
             </button>
           </div>
@@ -1728,7 +2108,7 @@ app.get('/settings', async (c) => {
             <input 
               type="text" 
               id="partner-code-input"
-              class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-transparent mb-4 text-center text-lg font-mono"
+              class="w-full px-4 py-3 border-2 border-gray-300 rounded-2xl focus:ring-2 focus:ring-amber-400 focus:border-transparent mb-4 text-center text-lg font-mono"
               placeholder="6자리 코드 입력"
               maxlength="6"
             />
@@ -1802,8 +2182,8 @@ app.get('/settings', async (c) => {
       </div>
 
       {/* 하단 네비게이션 */}
-      <div class="fixed bottom-0 left-0 right-0 bg-gray-400 bg-opacity-90 backdrop-blur-sm shadow-lg">
-        <div class="max-w-md mx-auto px-8 py-4">
+      <div class="fixed bottom-0 left-0 right-0 py-4" style="background: linear-gradient(to top, rgba(255,248,231,0.98), rgba(255,228,181,0.95)); padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+        <div class="max-w-md mx-auto px-8">
           <div class="flex items-center justify-between">
             <a href="/dashboard" class="flex flex-col items-center space-y-1 text-gray-600 hover:text-gray-800 transition">
               <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-md">
@@ -1826,8 +2206,11 @@ app.get('/settings', async (c) => {
 
       <script dangerouslySetInnerHTML={{
         __html: `
+          const currentUser = { name: ${JSON.stringify(userName)}, email: ${JSON.stringify(user.email || user.id || '') }};
           const currentGender = ${JSON.stringify(userGender)};
           const currentNotificationTime = ${JSON.stringify(notificationTime)};
+          const currentCoupleCode = ${JSON.stringify(coupleCode)};
+          const isPartnerLinked = ${JSON.stringify(isPartnerLinked)};
           
           // 닉네임 수정
           document.getElementById('edit-name-btn').addEventListener('click', () => {
@@ -1849,6 +2232,7 @@ app.get('/settings', async (c) => {
               const response = await fetch('/api/user/update-name', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ name: newName })
               });
 
@@ -1875,6 +2259,14 @@ app.get('/settings', async (c) => {
             document.getElementById('notification-modal').classList.add('hidden');
           });
 
+          const timeDisplay = document.getElementById('notification-time-display');
+          const timeInput = document.getElementById('new-notification-time');
+          const fmtTime = (v) => { if (!v) return '20:00'; const [h,m]=v.split(':'); const hh=+h; return hh>=12 ? '오후 '+(hh===12?12:hh-12)+':'+(m||'00') : '오전 '+(hh||12)+':'+(m||'00'); };
+          if (timeDisplay && timeInput) {
+            timeInput.addEventListener('input', () => { timeDisplay.textContent = fmtTime(timeInput.value); });
+            timeInput.addEventListener('change', () => { timeDisplay.textContent = fmtTime(timeInput.value); });
+          }
+
           document.getElementById('save-notification-btn').addEventListener('click', async () => {
             const newTime = document.getElementById('new-notification-time').value;
             
@@ -1895,6 +2287,72 @@ app.get('/settings', async (c) => {
             } catch (error) {
               console.error('알림 시간 변경 오류:', error);
               alert('알림 시간 변경 중 오류가 발생했습니다.');
+            }
+          });
+
+          // 우리가 만난 날 설정 (커플 연동된 경우에만)
+          document.getElementById('met-date-btn').addEventListener('click', async () => {
+            try {
+              const res = await fetch('/api/user/partner-status', { credentials: 'include' });
+              const data = res.ok ? await res.json() : { linked: false };
+              if (!data.linked) {
+                document.getElementById('partner-required-modal').classList.remove('hidden');
+                return;
+              }
+              document.getElementById('met-date-modal').classList.remove('hidden');
+            } catch (e) {
+              document.getElementById('partner-required-modal').classList.remove('hidden');
+            }
+          });
+
+          document.getElementById('close-partner-required-modal').addEventListener('click', () => {
+            document.getElementById('partner-required-modal').classList.add('hidden');
+          });
+
+          document.getElementById('close-met-date-modal').addEventListener('click', () => {
+            document.getElementById('met-date-modal').classList.add('hidden');
+          });
+
+          const dateDisplay = document.getElementById('met-date-display');
+          const dateInput = document.getElementById('new-met-date');
+          const fmtDate = (v) => { if (!v) return '날짜 선택'; const [y,m,d]=v.split('-'); return y+'. '+parseInt(m,10)+'. '+parseInt(d,10)+'.'; };
+          if (dateDisplay && dateInput) {
+            dateInput.addEventListener('input', () => { dateDisplay.textContent = fmtDate(dateInput.value); });
+            dateInput.addEventListener('change', () => { dateDisplay.textContent = fmtDate(dateInput.value); });
+          }
+
+          document.getElementById('save-met-date-btn').addEventListener('click', async () => {
+            const newDate = document.getElementById('new-met-date').value;
+            if (!newDate) {
+              alert('날짜를 선택해주세요.');
+              return;
+            }
+            try {
+              const response = await fetch('/api/user/update-met-date', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ met_date: newDate })
+              });
+              const data = await response.json();
+              if (data.success) {
+                document.getElementById('met-date-modal').classList.add('hidden');
+                const btn = document.getElementById('met-date-btn');
+                const span = btn.querySelector('.flex.items-center.gap-2 span');
+                if (span) span.textContent = newDate;
+                else {
+                  const div = btn.querySelector('.flex.items-center.gap-2');
+                  const s = document.createElement('span');
+                  s.className = 'text-sm text-amber-600';
+                  s.textContent = newDate;
+                  div.insertBefore(s, div.firstChild);
+                }
+                alert('우리가 만난 날이 저장되었습니다! 💕');
+              } else {
+                alert(data.error || '저장에 실패했습니다.');
+              }
+            } catch (error) {
+              console.error('만난 날 저장 오류:', error);
+              alert('저장 중 오류가 발생했습니다.');
             }
           });
 
@@ -1980,7 +2438,7 @@ app.get('/settings', async (c) => {
             document.getElementById('feedback-modal').classList.add('hidden');
           });
 
-          document.getElementById('send-feedback-btn').addEventListener('click', () => {
+          document.getElementById('send-feedback-btn').addEventListener('click', async () => {
             const subject = document.getElementById('feedback-subject').value.trim();
             const message = document.getElementById('feedback-message').value.trim();
             
@@ -1989,20 +2447,32 @@ app.get('/settings', async (c) => {
               return;
             }
 
-            const emailBody = encodeURIComponent(
-              '제목: ' + subject + '\\n\\n' +
-              '내용:\\n' + message + '\\n\\n' +
-              '---\\n' +
-              '보낸 사람: ' + currentUser.name + '\\n' +
-              '이메일: ' + currentUser.email
-            );
-
-            window.location.href = 'mailto:connected.official.co@gmail.com?subject=' +
-              encodeURIComponent('[곰아워] ' + subject) + '&body=' + emailBody;
-
-            document.getElementById('feedback-modal').classList.add('hidden');
-            document.getElementById('feedback-subject').value = '';
-            document.getElementById('feedback-message').value = '';
+            const btn = document.getElementById('send-feedback-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>전송 중...';
+            try {
+              const response = await fetch('/api/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ subject, message })
+              });
+              const data = await response.json();
+              if (data.success) {
+                document.getElementById('feedback-modal').classList.add('hidden');
+                document.getElementById('feedback-subject').value = '';
+                document.getElementById('feedback-message').value = '';
+                alert('문의가 전송되었습니다. 빠른 시일 내에 답변 드리겠습니다. 💕');
+              } else {
+                alert(data.error || '전송에 실패했습니다. 잠시 후 다시 시도해주세요.');
+              }
+            } catch (error) {
+              console.error('문의 전송 오류:', error);
+              alert('전송 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+            } finally {
+              btn.disabled = false;
+              btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>전송하기';
+            }
           });
 
           // 메인 코드 복사
@@ -2094,6 +2564,41 @@ app.get('/settings', async (c) => {
             if (pinValue.length > 0) {
               pinValue = pinValue.slice(0, -1);
               renderPinDots();
+            }
+          });
+
+          // 계정 삭제
+          document.getElementById('delete-account-btn').addEventListener('click', () => {
+            document.getElementById('delete-account-modal').classList.remove('hidden');
+          });
+
+          document.getElementById('cancel-delete-btn').addEventListener('click', () => {
+            document.getElementById('delete-account-modal').classList.add('hidden');
+          });
+
+          document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('confirm-delete-btn');
+            btn.disabled = true;
+            btn.textContent = '삭제 중...';
+            try {
+              const response = await fetch('/api/user/delete-account', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: '{}'
+              });
+              const data = await response.json();
+              if (data.success) {
+                window.location.href = '/app/login';
+              } else {
+                alert(data.error || '계정 삭제에 실패했습니다.');
+              }
+            } catch (error) {
+              console.error('계정 삭제 오류:', error);
+              alert('계정 삭제 중 오류가 발생했습니다.');
+            } finally {
+              btn.disabled = false;
+              btn.textContent = '삭제하기';
             }
           });
         `
@@ -2253,23 +2758,31 @@ app.post('/api/message/send', async (c) => {
       ).bind(user.db_id, effectiveCoupleId, content, message_date).run()
     }
 
-    // 커플 연동 상태면 상대방에게 푸시 전송
-    if (user.couple_id) {
+    // 커플 연동 상태면 상대방에게 푸시 전송 (DB 기준 couple_id 사용)
+    const dbUser = await c.env.DB.prepare('SELECT couple_id, name FROM users WHERE id = ?')
+      .bind(user.db_id).first()
+    const coupleId = dbUser?.couple_id as number | null
+    if (coupleId) {
       const partner = await c.env.DB.prepare(
         'SELECT id FROM users WHERE couple_id = ? AND id != ? LIMIT 1'
-      ).bind(user.couple_id, user.db_id).first()
+      ).bind(coupleId, user.db_id).first()
 
       if (partner?.id) {
         const tokens = await c.env.DB.prepare(
           'SELECT token FROM device_tokens WHERE user_id = ?'
         ).bind(partner.id).all()
 
-        const message = `${user.name}님이 곰아워했어요🧡`
+        const senderName = (dbUser?.name as string) || user.name || '상대방'
+        const pushMessage = `${senderName}님이 곰아워했어요🧡`
         for (const tokenRow of tokens.results as any[]) {
-          const response = await sendApns(c.env, tokenRow.token, message)
-          if (!response.ok) {
-            const errorText = await response.text()
-            console.error('APNs 전송 실패:', response.status, errorText)
+          try {
+            const response = await sendApns(c.env, tokenRow.token, pushMessage)
+            if (!response.ok) {
+              const errorText = await response.text()
+              console.error('APNs 전송 실패:', response.status, errorText)
+            }
+          } catch (e) {
+            console.error('APNs 전송 오류:', e)
           }
         }
       }
@@ -2345,6 +2858,26 @@ app.get('/api/messages/:year/:month', async (c) => {
   }
 })
 
+// 커플 연동 여부 확인 (만난 날 설정 등에서 사용)
+app.get('/api/user/partner-status', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ linked: false }, 401)
+  }
+  const user: User = JSON.parse(userSessionCookie)
+  const dbUser = await c.env.DB.prepare('SELECT couple_id FROM users WHERE id = ?')
+    .bind(user.db_id).first()
+  const coupleId = dbUser?.couple_id as number | null
+  if (!coupleId) {
+    return c.json({ linked: false })
+  }
+  const coupleCount = await c.env.DB.prepare(
+    'SELECT COUNT(*) as count FROM users WHERE couple_id = ?'
+  ).bind(coupleId).first()
+  const linked = (coupleCount?.count as number) >= 2
+  return c.json({ linked })
+})
+
 // 사용자 닉네임 업데이트
 app.post('/api/user/update-name', async (c) => {
   const userSessionCookie = getCookie(c, 'user_session')
@@ -2406,7 +2939,96 @@ app.post('/api/user/update-notification', async (c) => {
   }
 })
 
-// 커플 설정 건너뛰기 (나중에 하기)
+// 우리가 만난 날 업데이트 (연동 없이도 users에 저장 가능 - 테스트용)
+app.post('/api/user/update-met-date', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  const { met_date } = await c.req.json()
+
+  if (!met_date || !/^\d{4}-\d{2}-\d{2}$/.test(met_date)) {
+    return c.json({ success: false, error: '올바른 날짜를 입력해주세요.' }, 400)
+  }
+
+  const dbUser = await c.env.DB.prepare(
+    'SELECT couple_id FROM users WHERE id = ?'
+  ).bind(user.db_id).first()
+
+  const coupleId = dbUser?.couple_id as number | null
+
+  try {
+    if (coupleId) {
+      await c.env.DB.prepare(
+        'UPDATE couples SET met_date = ? WHERE id = ?'
+      ).bind(met_date, coupleId).run()
+    } else {
+      await c.env.DB.prepare(
+        'UPDATE users SET met_date = ? WHERE id = ?'
+      ).bind(met_date, user.db_id).run()
+    }
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('만난 날 업데이트 오류:', error)
+    return c.json({ success: false, error: '저장 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
+// 커플 설정 건너뛰기 - 폼 제출용 (WebView에서 리다이렉트 안정적)
+app.post('/setup/skip', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.redirect('/app/login')
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  let body: { gender?: string; notification_time?: string; name?: string }
+  const contentType = c.req.header('Content-Type') || ''
+  if (contentType.includes('application/json')) {
+    body = await c.req.json()
+  } else {
+    const form = await c.req.parseBody()
+    body = {
+      gender: form.gender as string,
+      notification_time: (form.notification_time as string) || '20:00',
+      name: (form.name as string) || user.name
+    }
+  }
+
+  if (!body.gender) {
+    return c.redirect('/setup?error=gender')
+  }
+
+  try {
+    await c.env.DB.prepare(
+      'UPDATE users SET gender = ?, notification_time = ?, name = ? WHERE id = ?'
+    ).bind(body.gender, body.notification_time || '20:00', (body.name || user.name)?.trim() || user.name, user.db_id).run()
+
+    user.gender = body.gender
+    user.notification_time = body.notification_time || '20:00'
+    if (body.name?.trim()) user.name = body.name.trim()
+    user.setup_done = true
+    setCookie(c, 'user_session', JSON.stringify(user), {
+      path: '/',
+      domain: 'gom-hr.com',
+      httpOnly: true,
+      secure: false,
+      maxAge: 60 * 60 * 24 * 7,
+      sameSite: 'Lax'
+    })
+    if (user.email === 'admin@gomawo.app') {
+      deleteCookie(c, 'admin_force_setup', { path: '/', domain: 'gom-hr.com' })
+    }
+    return c.redirect('/dashboard?show_promise=1&from_setup=1')
+  } catch (error) {
+    console.error('설정 저장 오류:', error)
+    return c.redirect('/setup?error=save')
+  }
+})
+
+// 커플 설정 건너뛰기 (나중에 하기) - API
 app.post('/api/user/skip-couple-setup', async (c) => {
   const userSessionCookie = getCookie(c, 'user_session')
   if (!userSessionCookie) {
@@ -2569,7 +3191,7 @@ app.post('/api/feedback', async (c) => {
     '',
     '---',
     `보낸 사람: ${user.name}`,
-    `이메일: ${user.email}`,
+    `이메일: ${user.email || user.id || '(알 수 없음)'}`,
   ].join('\n')
 
   const response = await fetch('https://api.resend.com/emails', {
@@ -2627,10 +3249,72 @@ app.post('/api/couple/unlink', async (c) => {
   }
 })
 
+// 계정 삭제 API
+app.post('/api/user/delete-account', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+
+  try {
+    const dbUser = await c.env.DB.prepare(
+      'SELECT id, couple_id FROM users WHERE id = ?'
+    ).bind(user.db_id).first()
+
+    if (!dbUser) {
+      deleteCookie(c, 'user_session', { path: '/' })
+      return c.json({ success: true })
+    }
+
+    const coupleId = dbUser.couple_id as number | null
+
+    if (coupleId) {
+      // 상대방 연동 해제
+      await c.env.DB.prepare(
+        'UPDATE users SET couple_id = NULL WHERE couple_id = ? AND id != ?'
+      ).bind(coupleId, user.db_id).run()
+
+      // 커플 메시지 삭제
+      await c.env.DB.prepare(
+        'DELETE FROM messages WHERE couple_id = ?'
+      ).bind(coupleId).run()
+
+      // 커플 삭제
+      await c.env.DB.prepare(
+        'DELETE FROM couples WHERE id = ?'
+      ).bind(coupleId).run()
+    }
+
+    // 나의 메시지 삭제
+    await c.env.DB.prepare(
+      'DELETE FROM messages WHERE user_id = ?'
+    ).bind(user.db_id).run()
+
+    // 디바이스 토큰 삭제
+    await c.env.DB.prepare(
+      'DELETE FROM device_tokens WHERE user_id = ?'
+    ).bind(user.db_id).run()
+
+    // 사용자 삭제
+    await c.env.DB.prepare(
+      'DELETE FROM users WHERE id = ?'
+    ).bind(user.db_id).run()
+
+    deleteCookie(c, 'user_session', { path: '/' })
+
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('계정 삭제 오류:', error)
+    return c.json({ success: false, error: '계정 삭제 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
 // 로그아웃
 app.get('/logout', (c) => {
   deleteCookie(c, 'user_session', { path: '/' })
-  return c.redirect('/')
+  return c.redirect('/app/login')
 })
 
 let cachedApnsToken: { token: string; issuedAt: number } | null = null
@@ -2742,23 +3426,48 @@ const scheduledHandler = async (event: ScheduledEvent, env: Bindings, ctx: Execu
     const nowTime = getKstTime()
     const today = getKstDate()
 
-    const users = await env.DB.prepare(
+    // 1) 커플 연동된 사용자: 상대방 이름 포함 메시지
+    const coupleUsers = await env.DB.prepare(
       `SELECT u.id AS user_id, u.couple_id, u.notification_time, p.name AS partner_name
        FROM users u
        JOIN users p ON p.couple_id = u.couple_id AND p.id != u.id
        WHERE u.couple_id IS NOT NULL AND u.notification_time = ?`
     ).bind(nowTime).all()
 
-    if (!users.results.length) return
-
-    for (const row of users.results as any[]) {
+    for (const row of (coupleUsers.results || []) as any[]) {
       const tokens = await env.DB.prepare(
         `SELECT token, last_notified_date FROM device_tokens WHERE user_id = ?`
       ).bind(row.user_id).all()
 
-      for (const tokenRow of tokens.results as any[]) {
+      for (const tokenRow of (tokens.results || []) as any[]) {
         if (tokenRow.last_notified_date === today) continue
         const message = `오늘도 ${row.partner_name}에게 곰아워 한마디, 잊지 말아요💛`
+        const response = await sendApns(env, tokenRow.token, message)
+        if (response.ok) {
+          await env.DB.prepare(
+            `UPDATE device_tokens SET last_notified_date = ? WHERE token = ?`
+          ).bind(today, tokenRow.token).run()
+        } else {
+          const errorText = await response.text()
+          console.error('APNs 전송 실패:', response.status, errorText)
+        }
+      }
+    }
+
+    // 2) 커플 미연동 사용자(나중에 하기): 일반 리마인더
+    const soloUsers = await env.DB.prepare(
+      `SELECT id AS user_id FROM users
+       WHERE couple_id IS NULL AND notification_time = ?`
+    ).bind(nowTime).all()
+
+    for (const row of (soloUsers.results || []) as any[]) {
+      const tokens = await env.DB.prepare(
+        `SELECT token, last_notified_date FROM device_tokens WHERE user_id = ?`
+      ).bind(row.user_id).all()
+
+      for (const tokenRow of (tokens.results || []) as any[]) {
+        if (tokenRow.last_notified_date === today) continue
+        const message = `오늘의 곰아워 한마디, 잊지 말아요💛`
         const response = await sendApns(env, tokenRow.token, message)
         if (response.ok) {
           await env.DB.prepare(

@@ -60,3 +60,13 @@ npx wrangler secret list  # Main 시크릿 확인
 npx wrangler secret put APPLE_PRIVATE_KEY -c wrangler-legacy.toml
 npx wrangler secret put APNS_PRIVATE_KEY -c wrangler-legacy.toml
 ```
+
+## 404 Not Found 해결
+
+앱(시뮬레이터/실기기)에서 404가 뜨면 **Legacy Worker가 배포되어 있는지** 확인하세요. 앱 경로(`/app*`, `/dashboard` 등)는 Legacy Worker가 처리합니다.
+
+```bash
+npx wrangler deploy -c wrangler-legacy.toml
+```
+
+배포 후 앱을 다시 실행해보세요.

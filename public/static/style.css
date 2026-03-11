@@ -1,18 +1,24 @@
 html, body {
   margin: 0;
   padding: 0;
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
   font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, -apple-system, sans-serif;
-  background-color: #fff;
+  background: linear-gradient(to bottom, #FFF8E7, #FFE4B5);
+  min-height: 100vh;
 }
 
 * {
   box-sizing: border-box;
 }
 
-.time-input {
-  height: 48px;
+/* 날짜/시간 표시 박스 - 6자리 코드 입력과 동일 (px-4 py-3 rounded-2xl) */
+.form-input-box {
+  min-height: 48px;
   font-size: 16px;
-  line-height: 1.2;
-  -webkit-appearance: none;
-  appearance: none;
+  line-height: 1.5;
+}
+.date-time-input-wrap:focus-within .form-input-box {
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.3);
 }
