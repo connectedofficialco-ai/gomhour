@@ -22,3 +22,11 @@ html, body {
   border-color: #fbbf24;
   box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.3);
 }
+
+/* 설정 메뉴 버튼 - iOS WebView 터치 최적화 */
+.settings-menu-item {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(251, 191, 36, 0.2);
+  position: relative;
+  z-index: 5;
+}

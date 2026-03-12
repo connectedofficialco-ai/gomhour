@@ -26,7 +26,7 @@ JWT_SECRET = "dev-secret"
 RESEND_FROM = "no-reply@gom-hr.com"
 FEEDBACK_TO = "connected.official.co@gmail.com"
 APNS_TEAM_ID = "R6482544RU"
-APNS_KEY_ID = "4CX9US5H63"
+APNS_KEY_ID = "5Q5CZPSXAP"
 APNS_BUNDLE_ID = "com.gomhour.gomawo"
 APNS_USE_SANDBOX = "false"
 

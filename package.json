@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev index.tsx --local --port 8787 --host 127.0.0.1"
+    "dev": "wrangler dev index.tsx --local --port 8787 --host 127.0.0.1",
+    "dev:legacy": "wrangler dev -c wrangler-legacy.toml --local --port 8787 --host 127.0.0.1"
   },
   "dependencies": {
     "hono": "^4.7.0",

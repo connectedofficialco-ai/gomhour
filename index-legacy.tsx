@@ -484,7 +484,7 @@ app.post('/auth/signup', async (c) => {
       domain: 'gom-hr.com',
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
     })
     setCookie(c, 'from_app', '1', {
@@ -560,7 +560,7 @@ app.post('/auth/login', async (c) => {
       domain: 'gom-hr.com',
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
     })
     setCookie(c, 'from_app', '1', {
@@ -745,7 +745,7 @@ const handleAppleCallback = async (c: any) => {
       domain: 'gom-hr.com',
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
     })
     setCookie(c, 'from_app', '1', {
@@ -1260,6 +1260,7 @@ app.get('/dashboard', async (c) => {
                   const res = await fetch('/api/user/verify-pin', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
                     body: JSON.stringify({ pin: pinLockValue })
                   });
                   const data = await res.json();
@@ -1891,7 +1892,7 @@ app.get('/settings', async (c) => {
   }
 
   return c.render(
-    <div class="min-h-screen pb-24" style="background: linear-gradient(to bottom, #FFF8E7, #FFE4B5);">
+    <div class="min-h-screen pb-32" style="background: linear-gradient(to bottom, #FFF8E7, #FFE4B5);">
       <div class="max-w-md mx-auto px-4 py-6">
         {/* 헤더 */}
         <div class="flex items-center justify-between mb-6">
@@ -1966,17 +1967,17 @@ app.get('/settings', async (c) => {
         </div>
         )}
 
-        {/* 메뉴 리스트 */}
-        <div class="bg-white rounded-3xl shadow-lg overflow-hidden mb-6">
-          <button id="partner-link-btn" class={`w-full flex items-center justify-between p-5 transition border-b border-gray-100 ${isPartnerLinked ? 'opacity-50 cursor-default pointer-events-none' : 'hover:bg-gray-50'}`}>
+        {/* 메뉴 리스트 - onclick 인라인으로 모달 열기 */}
+        <div class="bg-white rounded-3xl shadow-lg overflow-hidden mb-6" style="position:relative;z-index:10">
+          <a href="#" onclick={isPartnerLinked ? 'return false' : "document.getElementById('partner-modal').classList.remove('hidden');return false"} class={`settings-menu-item w-full flex items-center justify-between p-5 transition border-b border-gray-100 no-underline text-inherit ${isPartnerLinked ? 'opacity-50 cursor-default pointer-events-none' : 'hover:bg-gray-50 cursor-pointer'}`}>
             <div class="flex items-center">
               <span class="text-2xl mr-3">🔗</span>
               <span class="text-base font-semibold text-gray-800">상대방 계정 연동하기</span>
             </div>
             <i class="fas fa-chevron-right text-gray-400"></i>
-          </button>
+          </a>
 
-          <button id="met-date-btn" data-partner-linked={isPartnerLinked ? 'true' : 'false'} class={`w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100 ${!isPartnerLinked ? 'opacity-50' : ''}`}>
+          <a id="met-date-btn" href="#" onclick="window.__openMetDate();return false" class={`settings-menu-item w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100 cursor-pointer no-underline text-inherit ${!isPartnerLinked ? 'opacity-50' : ''}`}>
             <div class="flex items-center">
               <span class="text-2xl mr-3">💕</span>
               <span class="text-base font-semibold text-gray-800">우리가 만난 날 설정하기</span>
@@ -1985,33 +1986,33 @@ app.get('/settings', async (c) => {
               {metDate ? <span class="text-sm text-amber-600">{metDate}</span> : null}
               <i class="fas fa-chevron-right text-gray-400"></i>
             </div>
-          </button>
+          </a>
 
-          <button id="notification-btn" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100">
+          <a href="#" onclick="document.getElementById('notification-modal').classList.remove('hidden');return false" class="settings-menu-item w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100 cursor-pointer no-underline text-inherit">
             <div class="flex items-center">
               <span class="text-2xl mr-3">⏰</span>
-              <span class="text-base font-semibold text-gray-800">알림시간 재설정하기</span>
+              <span class="text-base font-semibold text-gray-800">알림 시간 설정하기</span>
             </div>
             <i class="fas fa-chevron-right text-gray-400"></i>
-          </button>
+          </a>
 
-          <button id="feedback-btn" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100">
+          <a href="#" onclick="document.getElementById('feedback-modal').classList.remove('hidden');return false" class="settings-menu-item w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100 cursor-pointer no-underline text-inherit">
             <div class="flex items-center">
               <span class="text-2xl mr-3">💡</span>
               <span class="text-base font-semibold text-gray-800">제안/문의하기</span>
             </div>
             <i class="fas fa-chevron-right text-gray-400"></i>
-          </button>
+          </a>
 
-          <button id="password-btn" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100">
+          <a href="#" onclick="document.getElementById('password-modal').classList.remove('hidden');if(typeof resetPin==='function')resetPin();return false" class="settings-menu-item w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100 cursor-pointer no-underline text-inherit">
             <div class="flex items-center">
               <span class="text-2xl mr-3">🔒</span>
               <span class="text-base font-semibold text-gray-800">비밀번호 설정하기</span>
             </div>
             <i class="fas fa-chevron-right text-gray-400"></i>
-          </button>
+          </a>
 
-          <a href="https://gom-hr.com" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100">
+          <a href="https://gom-hr.com" class="w-full flex items-center justify-between p-5 hover:bg-gray-50 transition border-b border-gray-100 no-underline text-inherit">
             <div class="flex items-center">
               <span class="text-2xl mr-3">🏠</span>
               <span class="text-base font-semibold text-gray-800">홈페이지 바로가기</span>
@@ -2019,13 +2020,13 @@ app.get('/settings', async (c) => {
             <i class="fas fa-external-link-alt text-gray-400 text-sm"></i>
           </a>
 
-          <button type="button" id="delete-account-btn" class="w-full flex items-center justify-between p-5 hover:bg-red-50 transition">
+          <a href="#" onclick="document.getElementById('delete-account-modal').classList.remove('hidden');return false" class="settings-menu-item w-full flex items-center justify-between p-5 hover:bg-red-50 transition no-underline text-inherit">
             <div class="flex items-center">
               <span class="text-2xl mr-3">🗑️</span>
               <span class="text-base font-semibold text-red-600">계정 삭제하기</span>
             </div>
             <i class="fas fa-chevron-right text-gray-400"></i>
-          </button>
+          </a>
         </div>
 
         {/* 계정 삭제 확인 모달 */}
@@ -2037,10 +2038,10 @@ app.get('/settings', async (c) => {
               <p class="text-sm text-gray-600 mb-1">삭제된 계정과 모든 데이터는 복구할 수 없습니다.</p>
             </div>
             <div class="flex gap-3">
-              <button type="button" id="cancel-delete-btn" class="flex-1 py-3 rounded-xl font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 transition">
+              <button type="button" onclick="document.getElementById('delete-account-modal').classList.add('hidden')" class="flex-1 py-3 rounded-xl font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 transition cursor-pointer">
                 취소
               </button>
-              <button type="button" id="confirm-delete-btn" class="flex-1 py-3 rounded-xl font-bold text-white bg-red-500 hover:bg-red-600 transition">
+              <button type="button" id="confirm-delete-btn" onclick="window.__confirmDelete()" class="flex-1 py-3 rounded-xl font-bold text-white bg-red-500 hover:bg-red-600 transition cursor-pointer">
                 삭제하기
               </button>
             </div>
@@ -2052,7 +2053,7 @@ app.get('/settings', async (c) => {
           <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-xl font-bold text-gray-800">알림 시간 설정</h3>
-              <button id="close-notification-modal" class="p-2 hover:bg-gray-100 rounded-full transition">
+              <button type="button" onclick="document.getElementById('notification-modal').classList.add('hidden')" class="p-2 hover:bg-gray-100 rounded-full transition cursor-pointer">
                 <i class="fas fa-times text-gray-600"></i>
               </button>
             </div>
@@ -2060,7 +2061,7 @@ app.get('/settings', async (c) => {
               <div class="form-input-box w-full px-4 py-3 border-2 border-gray-300 rounded-2xl bg-white text-gray-800" id="notification-time-display">{notificationTime ? (() => { const [h,m]=(notificationTime||'').split(':'); const hh=+h; return hh>=12 ? `오후 ${hh===12?12:hh-12}:${m||'00'}` : `오전 ${hh||12}:${m||'00'}`; })() : '오후 8:00'}</div>
               <input type="time" id="new-notification-time" value={notificationTime} class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
             </div>
-            <button id="save-notification-btn" class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+            <button type="button" onclick="window.__saveNotification()" class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all cursor-pointer" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
               <i class="fas fa-check mr-2"></i>저장
             </button>
           </div>
@@ -2070,7 +2071,7 @@ app.get('/settings', async (c) => {
         <div id="partner-required-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[55] flex items-center justify-center p-4">
           <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 text-center">
             <p class="text-lg text-gray-800 mb-6">커플 연동 후 설정할 수 있어요</p>
-            <button id="close-partner-required-modal" class="w-full py-3 rounded-xl font-bold text-white text-base" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+            <button type="button" onclick="document.getElementById('partner-required-modal').classList.add('hidden')" class="w-full py-3 rounded-xl font-bold text-white text-base cursor-pointer" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
               확인
             </button>
           </div>
@@ -2081,7 +2082,7 @@ app.get('/settings', async (c) => {
           <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-lg font-bold text-gray-800">우리가 만난 날 설정하기</h3>
-              <button id="close-met-date-modal" class="p-2 hover:bg-gray-100 rounded-full transition">
+              <button type="button" onclick="document.getElementById('met-date-modal').classList.add('hidden')" class="p-2 hover:bg-gray-100 rounded-full transition cursor-pointer">
                 <i class="fas fa-times text-gray-600"></i>
               </button>
             </div>
@@ -2089,7 +2090,7 @@ app.get('/settings', async (c) => {
               <div class="form-input-box w-full px-4 py-3 border-2 border-gray-300 rounded-2xl bg-white text-gray-800" id="met-date-display">{metDate ? `${metDate.split('-')[0]}. ${parseInt(metDate.split('-')[1],10)}. ${parseInt(metDate.split('-')[2],10)}.` : '날짜 선택'}</div>
               <input type="date" id="new-met-date" value={metDate} class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
             </div>
-            <button id="save-met-date-btn" class="w-full py-3.5 rounded-xl font-bold text-white text-base shadow-lg hover:shadow-xl transition-all" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+            <button type="button" onclick="window.__saveMetDate()" class="w-full py-3.5 rounded-xl font-bold text-white text-base shadow-lg hover:shadow-xl transition-all cursor-pointer" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
               <i class="fas fa-check mr-2"></i>저장
             </button>
           </div>
@@ -2100,7 +2101,7 @@ app.get('/settings', async (c) => {
           <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-xl font-bold text-gray-800">상대방 계정 연동</h3>
-              <button id="close-partner-modal" class="p-2 hover:bg-gray-100 rounded-full transition">
+              <button type="button" onclick="document.getElementById('partner-modal').classList.add('hidden')" class="p-2 hover:bg-gray-100 rounded-full transition cursor-pointer">
                 <i class="fas fa-times text-gray-600"></i>
               </button>
             </div>
@@ -2112,7 +2113,7 @@ app.get('/settings', async (c) => {
               placeholder="6자리 코드 입력"
               maxlength="6"
             />
-            <button id="join-partner-btn" class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+            <button type="button" onclick="window.__joinPartner()" class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all cursor-pointer" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
               <i class="fas fa-link mr-2"></i>연동하기
             </button>
           </div>
@@ -2123,7 +2124,7 @@ app.get('/settings', async (c) => {
           <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6">
             <div class="flex items-center justify-between mb-2">
               <h3 class="text-xl font-bold text-gray-800">앱 잠금 비밀번호</h3>
-              <button id="close-password-modal" class="p-2 hover:bg-gray-100 rounded-full transition">
+              <button type="button" onclick="document.getElementById('password-modal').classList.add('hidden')" class="p-2 hover:bg-gray-100 rounded-full transition cursor-pointer">
                 <i class="fas fa-times text-gray-600"></i>
               </button>
             </div>
@@ -2135,18 +2136,18 @@ app.get('/settings', async (c) => {
               <span class="w-3 h-3 rounded-full bg-gray-200"></span>
             </div>
             <div class="grid grid-cols-3 gap-3 text-lg font-semibold">
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="1">1</button>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="2">2</button>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="3">3</button>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="4">4</button>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="5">5</button>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="6">6</button>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="7">7</button>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="8">8</button>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="9">9</button>
+              <button type="button" onclick="window.__pinKey('1')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">1</button>
+              <button type="button" onclick="window.__pinKey('2')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">2</button>
+              <button type="button" onclick="window.__pinKey('3')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">3</button>
+              <button type="button" onclick="window.__pinKey('4')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">4</button>
+              <button type="button" onclick="window.__pinKey('5')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">5</button>
+              <button type="button" onclick="window.__pinKey('6')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">6</button>
+              <button type="button" onclick="window.__pinKey('7')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">7</button>
+              <button type="button" onclick="window.__pinKey('8')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">8</button>
+              <button type="button" onclick="window.__pinKey('9')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">9</button>
               <div></div>
-              <button class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200" data-digit="0">0</button>
-              <button id="pin-del" class="py-3 rounded-xl bg-gray-100 hover:bg-gray-200">⌫</button>
+              <button type="button" onclick="window.__pinKey('0')" class="pin-key py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">0</button>
+              <button type="button" onclick="window.__pinDel()" class="py-3 rounded-xl bg-gray-100 hover:bg-gray-200 cursor-pointer">⌫</button>
             </div>
             <p id="pin-error" class="text-center text-sm text-red-500 mt-3 hidden">비밀번호가 일치하지 않습니다.</p>
           </div>
@@ -2157,7 +2158,7 @@ app.get('/settings', async (c) => {
           <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-xl font-bold text-gray-800">제안/문의하기</h3>
-              <button id="close-feedback-modal" class="p-2 hover:bg-gray-100 rounded-full transition">
+              <button type="button" onclick="document.getElementById('feedback-modal').classList.add('hidden')" class="p-2 hover:bg-gray-100 rounded-full transition cursor-pointer">
                 <i class="fas fa-times text-gray-600"></i>
               </button>
             </div>
@@ -2174,28 +2175,28 @@ app.get('/settings', async (c) => {
               class="w-full px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-400 focus:border-transparent mb-4 resize-none"
               placeholder="내용을 입력해주세요"
             ></textarea>
-            <button id="send-feedback-btn" class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+            <button type="button" id="send-feedback-btn" onclick="window.__sendFeedback()" class="w-full py-3 rounded-xl font-bold text-white text-lg shadow-lg hover:shadow-xl transition-all cursor-pointer" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
               <i class="fas fa-paper-plane mr-2"></i>전송하기
             </button>
           </div>
         </div>
       </div>
 
-      {/* 하단 네비게이션 */}
-      <div class="fixed bottom-0 left-0 right-0 py-4" style="background: linear-gradient(to top, rgba(255,248,231,0.98), rgba(255,228,181,0.95)); padding-bottom: max(1rem, env(safe-area-inset-bottom));">
-        <div class="max-w-md mx-auto px-8">
+      {/* 하단 네비게이션 - pointer-events-none으로 배경은 터치 통과, 링크만 pointer-events-auto로 클릭 가능 */}
+      <div class="fixed bottom-0 left-0 right-0 py-4 z-40 pointer-events-none" style="background: linear-gradient(to top, rgba(255,248,231,0.98), rgba(255,228,181,0.95)); padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+        <div class="max-w-md mx-auto px-8 pointer-events-none">
           <div class="flex items-center justify-between">
-            <a href="/dashboard" class="flex flex-col items-center space-y-1 text-gray-600 hover:text-gray-800 transition">
+            <a href="/dashboard" class="pointer-events-auto flex flex-col items-center space-y-1 text-gray-600 hover:text-gray-800 transition">
               <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-md">
                 <i class="fas fa-calendar text-gray-600 text-xl"></i>
               </div>
             </a>
-            <a href="/history" class="flex flex-col items-center space-y-1 text-gray-600 hover:text-gray-800 transition">
+            <a href="/history" class="pointer-events-auto flex flex-col items-center space-y-1 text-gray-600 hover:text-gray-800 transition">
               <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center shadow-md">
                 <i class="fas fa-book text-gray-600 text-xl"></i>
               </div>
             </a>
-            <a href="/settings" class="flex flex-col items-center space-y-1 text-yellow-400">
+            <a href="/settings" class="pointer-events-auto flex flex-col items-center space-y-1 text-yellow-400">
               <div class="w-12 h-12 rounded-full bg-yellow-400 flex items-center justify-center shadow-md">
                 <i class="fas fa-user text-white text-xl"></i>
               </div>
@@ -2211,6 +2212,87 @@ app.get('/settings', async (c) => {
           const currentNotificationTime = ${JSON.stringify(notificationTime)};
           const currentCoupleCode = ${JSON.stringify(coupleCode)};
           const isPartnerLinked = ${JSON.stringify(isPartnerLinked)};
+          
+          window.__openMetDate = function() {
+            fetch('/api/user/partner-status', { credentials: 'include' }).then(function(r) { return r.json(); }).then(function(data) {
+              if (!data.linked) document.getElementById('partner-required-modal').classList.remove('hidden');
+              else document.getElementById('met-date-modal').classList.remove('hidden');
+            }).catch(function() { document.getElementById('partner-required-modal').classList.remove('hidden'); });
+          };
+          
+          window.__saveNotification = async function() {
+            var newTime = document.getElementById('new-notification-time').value;
+            try {
+              var res = await fetch('/api/user/update-notification', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ notification_time: newTime }) });
+              var data = await res.json();
+              if (data.success) {
+                document.getElementById('notification-modal').classList.add('hidden');
+                alert('알림 시간이 변경되었습니다! ⏰');
+                try { var pr = await fetch('/api/push/test', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: '{}' }); var pd = await pr.json(); if (pd.success) alert('테스트 푸시를 보냈어요! 📱'); else if (pd.error && pd.error.includes('등록된 디바이스')) alert('알림 시간 저장됐어요! ⏰\\n(푸시는 앱을 다시 켜고 설정 화면에 들어온 뒤에 등록돼요)'); } catch(e) {}
+              } else alert(data.error || '알림 시간 변경에 실패했습니다.');
+            } catch (e) { alert('알림 시간 변경 중 오류가 발생했습니다.'); }
+          };
+          
+          window.__saveMetDate = async function() {
+            var newDate = document.getElementById('new-met-date').value;
+            if (!newDate) { alert('날짜를 선택해주세요.'); return; }
+            try {
+              var res = await fetch('/api/user/update-met-date', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ met_date: newDate }) });
+              var data = await res.json();
+              if (data.success) {
+                document.getElementById('met-date-modal').classList.add('hidden');
+                var btn = document.getElementById('met-date-btn');
+                var span = btn.querySelector('.flex.items-center.gap-2 span');
+                if (span) span.textContent = newDate; else { var div = btn.querySelector('.flex.items-center.gap-2'); var s = document.createElement('span'); s.className = 'text-sm text-amber-600'; s.textContent = newDate; div.insertBefore(s, div.firstChild); }
+                alert('우리가 만난 날이 저장되었습니다! 💕');
+              } else alert(data.error || '저장에 실패했습니다.');
+            } catch (e) { alert('저장 중 오류가 발생했습니다.'); }
+          };
+          
+          window.__sendFeedback = async function() {
+            var subject = document.getElementById('feedback-subject').value.trim();
+            var message = document.getElementById('feedback-message').value.trim();
+            if (!subject || !message) { alert('제목과 내용을 모두 입력해주세요!'); return; }
+            var btn = document.getElementById('send-feedback-btn');
+            if (btn.getAttribute('data-sending') === '1') return;
+            btn.setAttribute('data-sending', '1');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>전송 중...';
+            try {
+              var res = await fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ subject, message }) });
+              var data = await res.json();
+              if (data.success) {
+                document.getElementById('feedback-modal').classList.add('hidden');
+                document.getElementById('feedback-subject').value = '';
+                document.getElementById('feedback-message').value = '';
+                alert('문의가 전송되었습니다. 빠른 시일 내에 답변 드리겠습니다. 💕');
+              } else alert(data.error || '전송에 실패했습니다.');
+            } catch (e) { alert('전송 중 오류가 발생했습니다.'); }
+            finally { btn.removeAttribute('data-sending'); btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>전송하기'; }
+          };
+          
+          window.__confirmDelete = async function() {
+            var btn = document.getElementById('confirm-delete-btn');
+            if (btn && btn.getAttribute('data-deleting') === '1') return;
+            if (btn) { btn.setAttribute('data-deleting', '1'); btn.textContent = '삭제 중...'; }
+            try {
+              var res = await fetch('/api/user/delete-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' });
+              var data = await res.json();
+              if (data.success) window.location.href = '/app/login';
+              else alert(data.error || '계정 삭제에 실패했습니다.');
+            } catch (e) { alert('계정 삭제 중 오류가 발생했습니다.'); }
+            finally { if (btn) { btn.removeAttribute('data-deleting'); btn.textContent = '삭제하기'; } }
+          };
+          
+          window.__joinPartner = async function() {
+            var partnerCode = document.getElementById('partner-code-input').value.trim().toUpperCase();
+            if (!partnerCode || partnerCode.length !== 6) { alert('6자리 커플 코드를 입력해주세요!'); return; }
+            try {
+              var res = await fetch('/api/couple/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ couple_code: partnerCode }) });
+              var data = await res.json();
+              if (data.success) { alert('상대방과 연동되었습니다! 💕'); window.location.href = '/dashboard'; }
+              else alert(data.error || '연동에 실패했습니다.');
+            } catch (e) { alert('연동 중 오류가 발생했습니다.'); }
+          };
           
           // 닉네임 수정
           document.getElementById('edit-name-btn').addEventListener('click', () => {
@@ -2251,14 +2333,6 @@ app.get('/settings', async (c) => {
           });
 
           // 알림 시간 설정
-          document.getElementById('notification-btn').addEventListener('click', () => {
-            document.getElementById('notification-modal').classList.remove('hidden');
-          });
-
-          document.getElementById('close-notification-modal').addEventListener('click', () => {
-            document.getElementById('notification-modal').classList.add('hidden');
-          });
-
           const timeDisplay = document.getElementById('notification-time-display');
           const timeInput = document.getElementById('new-notification-time');
           const fmtTime = (v) => { if (!v) return '20:00'; const [h,m]=v.split(':'); const hh=+h; return hh>=12 ? '오후 '+(hh===12?12:hh-12)+':'+(m||'00') : '오전 '+(hh||12)+':'+(m||'00'); };
@@ -2267,52 +2341,6 @@ app.get('/settings', async (c) => {
             timeInput.addEventListener('change', () => { timeDisplay.textContent = fmtTime(timeInput.value); });
           }
 
-          document.getElementById('save-notification-btn').addEventListener('click', async () => {
-            const newTime = document.getElementById('new-notification-time').value;
-            
-            try {
-              const response = await fetch('/api/user/update-notification', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ notification_time: newTime })
-              });
-
-              const data = await response.json();
-              if (data.success) {
-                document.getElementById('notification-modal').classList.add('hidden');
-                alert('알림 시간이 변경되었습니다! ⏰');
-              } else {
-                alert(data.error || '알림 시간 변경에 실패했습니다.');
-              }
-            } catch (error) {
-              console.error('알림 시간 변경 오류:', error);
-              alert('알림 시간 변경 중 오류가 발생했습니다.');
-            }
-          });
-
-          // 우리가 만난 날 설정 (커플 연동된 경우에만)
-          document.getElementById('met-date-btn').addEventListener('click', async () => {
-            try {
-              const res = await fetch('/api/user/partner-status', { credentials: 'include' });
-              const data = res.ok ? await res.json() : { linked: false };
-              if (!data.linked) {
-                document.getElementById('partner-required-modal').classList.remove('hidden');
-                return;
-              }
-              document.getElementById('met-date-modal').classList.remove('hidden');
-            } catch (e) {
-              document.getElementById('partner-required-modal').classList.remove('hidden');
-            }
-          });
-
-          document.getElementById('close-partner-required-modal').addEventListener('click', () => {
-            document.getElementById('partner-required-modal').classList.add('hidden');
-          });
-
-          document.getElementById('close-met-date-modal').addEventListener('click', () => {
-            document.getElementById('met-date-modal').classList.add('hidden');
-          });
-
           const dateDisplay = document.getElementById('met-date-display');
           const dateInput = document.getElementById('new-met-date');
           const fmtDate = (v) => { if (!v) return '날짜 선택'; const [y,m,d]=v.split('-'); return y+'. '+parseInt(m,10)+'. '+parseInt(d,10)+'.'; };
@@ -2320,50 +2348,6 @@ app.get('/settings', async (c) => {
             dateInput.addEventListener('input', () => { dateDisplay.textContent = fmtDate(dateInput.value); });
             dateInput.addEventListener('change', () => { dateDisplay.textContent = fmtDate(dateInput.value); });
           }
-
-          document.getElementById('save-met-date-btn').addEventListener('click', async () => {
-            const newDate = document.getElementById('new-met-date').value;
-            if (!newDate) {
-              alert('날짜를 선택해주세요.');
-              return;
-            }
-            try {
-              const response = await fetch('/api/user/update-met-date', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ met_date: newDate })
-              });
-              const data = await response.json();
-              if (data.success) {
-                document.getElementById('met-date-modal').classList.add('hidden');
-                const btn = document.getElementById('met-date-btn');
-                const span = btn.querySelector('.flex.items-center.gap-2 span');
-                if (span) span.textContent = newDate;
-                else {
-                  const div = btn.querySelector('.flex.items-center.gap-2');
-                  const s = document.createElement('span');
-                  s.className = 'text-sm text-amber-600';
-                  s.textContent = newDate;
-                  div.insertBefore(s, div.firstChild);
-                }
-                alert('우리가 만난 날이 저장되었습니다! 💕');
-              } else {
-                alert(data.error || '저장에 실패했습니다.');
-              }
-            } catch (error) {
-              console.error('만난 날 저장 오류:', error);
-              alert('저장 중 오류가 발생했습니다.');
-            }
-          });
-
-          // 상대방 연동
-          document.getElementById('partner-link-btn').addEventListener('click', () => {
-            document.getElementById('partner-modal').classList.remove('hidden');
-          });
-
-          document.getElementById('close-partner-modal').addEventListener('click', () => {
-            document.getElementById('partner-modal').classList.add('hidden');
-          });
 
           // 커플 코드 생성 (마이페이지)
           const createMainCodeBtn = document.getElementById('create-main-code-btn');
@@ -2401,95 +2385,11 @@ app.get('/settings', async (c) => {
           }
 
           // 상대방 코드로 연동
-          document.getElementById('join-partner-btn').addEventListener('click', async () => {
-            const partnerCode = document.getElementById('partner-code-input').value.trim().toUpperCase();
-            
-            if (!partnerCode || partnerCode.length !== 6) {
-              alert('6자리 커플 코드를 입력해주세요!');
-              return;
-            }
-
-            try {
-              const response = await fetch('/api/couple/join', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ couple_code: partnerCode })
-              });
-
-              const data = await response.json();
-              if (data.success) {
-                alert('상대방과 연동되었습니다! 💕');
-                window.location.href = '/dashboard';
-              } else {
-                alert(data.error || '연동에 실패했습니다.');
-              }
-            } catch (error) {
-              console.error('연동 오류:', error);
-              alert('연동 중 오류가 발생했습니다.');
-            }
-          });
-
-          // 제안/문의하기
-          document.getElementById('feedback-btn').addEventListener('click', () => {
-            document.getElementById('feedback-modal').classList.remove('hidden');
-          });
-
-          document.getElementById('close-feedback-modal').addEventListener('click', () => {
-            document.getElementById('feedback-modal').classList.add('hidden');
-          });
-
-          document.getElementById('send-feedback-btn').addEventListener('click', async () => {
-            const subject = document.getElementById('feedback-subject').value.trim();
-            const message = document.getElementById('feedback-message').value.trim();
-            
-            if (!subject || !message) {
-              alert('제목과 내용을 모두 입력해주세요!');
-              return;
-            }
-
-            const btn = document.getElementById('send-feedback-btn');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>전송 중...';
-            try {
-              const response = await fetch('/api/feedback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ subject, message })
-              });
-              const data = await response.json();
-              if (data.success) {
-                document.getElementById('feedback-modal').classList.add('hidden');
-                document.getElementById('feedback-subject').value = '';
-                document.getElementById('feedback-message').value = '';
-                alert('문의가 전송되었습니다. 빠른 시일 내에 답변 드리겠습니다. 💕');
-              } else {
-                alert(data.error || '전송에 실패했습니다. 잠시 후 다시 시도해주세요.');
-              }
-            } catch (error) {
-              console.error('문의 전송 오류:', error);
-              alert('전송 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-            } finally {
-              btn.disabled = false;
-              btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>전송하기';
-            }
-          });
-
           // 메인 코드 복사
           document.getElementById('copy-main-code-btn').addEventListener('click', () => {
             const code = '${coupleCode}';
             navigator.clipboard.writeText(code);
             alert('커플 코드가 복사되었어요! 💕');
-          });
-
-          // 비밀번호 설정 (4자리 PIN)
-          document.getElementById('password-btn').addEventListener('click', () => {
-            document.getElementById('password-modal').classList.remove('hidden');
-            resetPin();
-          });
-
-          document.getElementById('close-password-modal').addEventListener('click', () => {
-            document.getElementById('password-modal').classList.add('hidden');
           });
 
           const pinDots = document.querySelectorAll('#pin-dots span');
@@ -2514,93 +2414,41 @@ app.get('/settings', async (c) => {
             renderPinDots();
           }
 
-          document.querySelectorAll('.pin-key').forEach(btn => {
-            btn.addEventListener('click', async () => {
-              if (pinValue.length >= 4) return;
-              pinValue += btn.dataset.digit;
-              renderPinDots();
-
-              if (pinValue.length === 4) {
-                if (pinStep === 1) {
-                  firstPin = pinValue;
-                  pinValue = '';
-                  pinStep = 2;
-                  pinStepText.textContent = '비밀번호를 한 번 더 입력하세요';
-                  renderPinDots();
-                } else {
-                  if (pinValue !== firstPin) {
-                    document.getElementById('pin-error').classList.remove('hidden');
-                    pinValue = '';
-                    renderPinDots();
-                    return;
-                  }
-
-                  try {
-                    const response = await fetch('/api/user/update-password', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ password: pinValue })
-                    });
-                    
-                    const data = await response.json();
-                    if (data.success) {
-                      document.getElementById('password-modal').classList.add('hidden');
-                      alert('비밀번호가 설정되었습니다! 🔒');
-                    } else {
-                      alert(data.error || '비밀번호 설정에 실패했습니다.');
-                    }
-                  } catch (error) {
-                    console.error('비밀번호 설정 오류:', error);
-                    alert('비밀번호 설정 중 오류가 발생했습니다.');
-                  } finally {
-                    resetPin();
-                  }
-                }
-              }
-            });
-          });
-
-          document.getElementById('pin-del').addEventListener('click', () => {
-            if (pinValue.length > 0) {
-              pinValue = pinValue.slice(0, -1);
-              renderPinDots();
-            }
-          });
-
-          // 계정 삭제
-          document.getElementById('delete-account-btn').addEventListener('click', () => {
-            document.getElementById('delete-account-modal').classList.remove('hidden');
-          });
-
-          document.getElementById('cancel-delete-btn').addEventListener('click', () => {
-            document.getElementById('delete-account-modal').classList.add('hidden');
-          });
-
-          document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('confirm-delete-btn');
-            btn.disabled = true;
-            btn.textContent = '삭제 중...';
-            try {
-              const response = await fetch('/api/user/delete-account', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: '{}'
-              });
-              const data = await response.json();
-              if (data.success) {
-                window.location.href = '/app/login';
+          window.__pinKey = function(digit) {
+            if (pinValue.length >= 4) return;
+            pinValue += digit;
+            renderPinDots();
+            if (pinValue.length === 4) {
+              if (pinStep === 1) {
+                firstPin = pinValue;
+                pinValue = '';
+                pinStep = 2;
+                pinStepText.textContent = '비밀번호를 한 번 더 입력하세요';
+                renderPinDots();
               } else {
-                alert(data.error || '계정 삭제에 실패했습니다.');
+                if (pinValue !== firstPin) {
+                  document.getElementById('pin-error').classList.remove('hidden');
+                  pinValue = '';
+                  renderPinDots();
+                  return;
+                }
+                fetch('/api/user/update-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ password: pinValue }) })
+                  .then(function(r) { return r.json(); })
+                  .then(function(data) {
+                    if (data.success) { document.getElementById('password-modal').classList.add('hidden'); alert('비밀번호가 설정되었습니다! 🔒'); }
+                    else alert(data.error || '비밀번호 설정에 실패했습니다.');
+                  })
+                  .catch(function() { alert('비밀번호 설정 중 오류가 발생했습니다.'); })
+                  .finally(function() { resetPin(); });
               }
-            } catch (error) {
-              console.error('계정 삭제 오류:', error);
-              alert('계정 삭제 중 오류가 발생했습니다.');
-            } finally {
-              btn.disabled = false;
-              btn.textContent = '삭제하기';
             }
-          });
+          };
+
+          window.__pinDel = function() {
+            if (pinValue.length > 0) { pinValue = pinValue.slice(0, -1); renderPinDots(); }
+          };
+
+
         `
       }} />
     </div>,
@@ -2654,7 +2502,7 @@ app.post('/api/couple/create', async (c) => {
       path: '/',
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
     })
 
@@ -2716,7 +2564,7 @@ app.post('/api/couple/join', async (c) => {
       path: '/',
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax',
     })
 
@@ -2902,7 +2750,7 @@ app.post('/api/user/update-name', async (c) => {
     setCookie(c, 'user_session', JSON.stringify(user), {
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax'
     })
 
@@ -2921,10 +2769,21 @@ app.post('/api/user/update-notification', async (c) => {
   }
 
   const user: User = JSON.parse(userSessionCookie)
-  const { notification_time } = await c.req.json()
+  const body = await c.req.json()
+  let notification_time = (body.notification_time || '').trim()
 
   if (!notification_time) {
     return c.json({ success: false, error: '알림 시간을 입력해주세요.' }, 400)
+  }
+
+  // HH:mm 형식으로 정규화 (9:00 -> 09:00)
+  const parts = notification_time.split(':')
+  if (parts.length >= 2) {
+    const h = parseInt(parts[0], 10)
+    const m = parseInt(parts[1], 10) || 0
+    if (!isNaN(h) && !isNaN(m)) {
+      notification_time = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0')
+    }
   }
 
   try {
@@ -3015,7 +2874,7 @@ app.post('/setup/skip', async (c) => {
       domain: 'gom-hr.com',
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax'
     })
     if (user.email === 'admin@gomawo.app') {
@@ -3058,7 +2917,7 @@ app.post('/api/user/skip-couple-setup', async (c) => {
       path: '/',
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax'
     })
 
@@ -3077,7 +2936,8 @@ app.post('/api/user/update-password', async (c) => {
   }
 
   const user: User = JSON.parse(userSessionCookie)
-  const { password } = await c.req.json()
+  const body = await c.req.json()
+  const password = body.password != null ? String(body.password) : ''
 
   if (!password || !/^\d{4}$/.test(password)) {
     return c.json({ success: false, error: '비밀번호는 4자리 숫자여야 합니다.' }, 400)
@@ -3104,7 +2964,8 @@ app.post('/api/user/verify-pin', async (c) => {
   }
 
   const user: User = JSON.parse(userSessionCookie)
-  const { pin } = await c.req.json()
+  const body = await c.req.json()
+  const pin = body.pin != null ? String(body.pin) : ''
 
   if (!pin || !/^\d{4}$/.test(pin)) {
     return c.json({ success: false, error: '비밀번호는 4자리 숫자여야 합니다.' }, 400)
@@ -3153,6 +3014,49 @@ app.post('/api/push/register', async (c) => {
   } catch (error) {
     console.error('푸시 토큰 저장 오류:', error)
     return c.json({ success: false, error: '토큰 저장에 실패했습니다.' }, 500)
+  }
+})
+
+// 푸시 테스트 (수동 발송 - 디버깅용)
+app.post('/api/push/test', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  try {
+    const tokens = await c.env.DB.prepare(
+      'SELECT token FROM device_tokens WHERE user_id = ?'
+    ).bind(user.db_id).all()
+
+    const tokenRows = (tokens.results || []) as { token: string }[]
+    if (tokenRows.length === 0) {
+      return c.json({ success: false, error: '등록된 디바이스 토큰이 없습니다. 대시보드/설정 화면에 진입한 뒤 다시 시도해주세요.' })
+    }
+
+    const results: { token: string; success: boolean; status?: number; error?: string }[] = []
+    for (const row of tokenRows) {
+      const response = await sendApns(c.env, row.token, '🧪 푸시 테스트 - 곰아워가 잘 되나요?')
+      const errorText = await response.text()
+      results.push({
+        token: row.token.substring(0, 20) + '...',
+        success: response.ok,
+        status: response.status,
+        error: response.ok ? undefined : errorText
+      })
+    }
+
+    const allOk = results.every(r => r.success)
+    return c.json({
+      success: allOk,
+      message: allOk ? '푸시 전송 성공!' : '일부 또는 전체 실패. error 필드 확인.',
+      results,
+      hint: 'APNs 400/403: 토큰/키 문제. Sandbox 빌드면 APNS_USE_SANDBOX=true 필요.'
+    })
+  } catch (error) {
+    console.error('푸시 테스트 오류:', error)
+    return c.json({ success: false, error: String(error) }, 500)
   }
 })
 
@@ -3238,7 +3142,7 @@ app.post('/api/couple/unlink', async (c) => {
     setCookie(c, 'user_session', JSON.stringify(user), {
       httpOnly: true,
       secure: false,
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 24 * 365,
       sameSite: 'Lax'
     })
 
@@ -3373,26 +3277,27 @@ const createApnsJwt = async (env: Bindings) => {
   return jwt
 }
 
+// KST 시간 HH:mm (Intl 의존 없이 직접 계산 - Workers 환경 호환)
 const getKstTime = () => {
   const now = new Date()
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-  return formatter.format(now)
+  const utcMs = now.getTime()
+  const kstMs = utcMs + 9 * 60 * 60 * 1000
+  const kst = new Date(kstMs)
+  const h = kst.getUTCHours()
+  const m = kst.getUTCMinutes()
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0')
 }
 
+// KST 날짜 YYYY-MM-DD (Workers 환경 호환)
 const getKstDate = () => {
   const now = new Date()
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  return formatter.format(now)
+  const utcMs = now.getTime()
+  const kstMs = utcMs + 9 * 60 * 60 * 1000
+  const kst = new Date(kstMs)
+  const y = kst.getUTCFullYear()
+  const m = kst.getUTCMonth() + 1
+  const d = kst.getUTCDate()
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
 const sendApns = async (env: Bindings, token: string, body: string) => {
