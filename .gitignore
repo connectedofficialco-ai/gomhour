@@ -21,3 +21,12 @@ flutter_app/ios/Flutter/Flutter.podspec
 # OS
 .DS_Store
 *.log
+
+# Sensitive keys
+AuthKey_*.p8
+
+# Claude
+.claude/
+
+# Python deps
+.pydeps/

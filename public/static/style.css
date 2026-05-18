@@ -1,11 +1,54 @@
-html, body {
+:root {
+  --app-bg: #ffeed7;
+  --app-bg-top: #ffeed7;
+  --tabbar-bg: #ffd8a3;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+  background-color: var(--tabbar-bg);
+  min-height: 100%;
+  overscroll-behavior-y: none;
+}
+
+body {
   margin: 0;
   padding: 0;
   padding-top: env(safe-area-inset-top, 0);
   padding-bottom: env(safe-area-inset-bottom, 0);
   font-family: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, -apple-system, sans-serif;
-  background: linear-gradient(to bottom, #FFF8E7, #FFE4B5);
+  background: var(--app-bg);
+  background-color: var(--app-bg);
+  background-attachment: fixed;
   min-height: 100vh;
+  overscroll-behavior-y: none;
+  position: relative;
+}
+
+/* iOS WebView 안전영역 색 강제 통일 */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* 상단 안전영역 = 본문 배경색 */
+body::before {
+  top: 0;
+  height: env(safe-area-inset-top, 0);
+  background: var(--app-bg);
+}
+
+/* 하단 안전영역 = 탭바 색 */
+body::after {
+  bottom: 0;
+  height: env(safe-area-inset-bottom, 0);
+  background: var(--tabbar-bg);
 }
 
 * {
@@ -29,4 +72,12 @@ html, body {
   -webkit-tap-highlight-color: rgba(251, 191, 36, 0.2);
   position: relative;
   z-index: 5;
+  pointer-events: auto;
+}
+
+/* 콜라주 에디터 - 캔버스가 버튼을 가리지 않도록 */
+#canvas-wrapper .canvas-container {
+  position: relative !important;
+  z-index: 1 !important;
+  overflow: hidden !important;
 }

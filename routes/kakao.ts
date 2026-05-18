@@ -1,6 +1,9 @@
 import { Hono } from 'hono'
 import { setCookie } from 'hono/cookie'
+import { withPublicCookieDomain } from '../cookie-public'
 import type { Bindings, KakaoUser } from '../types'
+
+const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 const kakaoAuth = new Hono<{ Bindings: Bindings }>()
 
@@ -28,12 +31,32 @@ kakaoAuth.get('/callback', async (c) => {
   const error = c.req.query('error')
 
   if (error) {
-    setCookie(c, 'from_app', '1', { path: '/', domain: 'gom-hr.com', httpOnly: false, maxAge: 60 * 60 * 24 * 365, sameSite: 'Lax' })
+    setCookie(
+      c,
+      'from_app',
+      '1',
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
     return c.redirect(`/app/login?error=${encodeURIComponent('카카오 로그인이 취소되었습니다.')}`)
   }
 
   if (!code) {
-    setCookie(c, 'from_app', '1', { path: '/', domain: 'gom-hr.com', httpOnly: false, maxAge: 60 * 60 * 24 * 365, sameSite: 'Lax' })
+    setCookie(
+      c,
+      'from_app',
+      '1',
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
     return c.redirect(`/app/login?error=${encodeURIComponent('인증 코드가 없습니다.')}`)
   }
 
@@ -75,7 +98,17 @@ kakaoAuth.get('/callback', async (c) => {
         clientId: c.env.KAKAO_CLIENT_ID,
         redirectUri: c.env.KAKAO_REDIRECT_URI
       })
-      setCookie(c, 'from_app', '1', { path: '/', domain: 'gom-hr.com', httpOnly: false, maxAge: 60 * 60 * 24 * 365, sameSite: 'Lax' })
+      setCookie(
+        c,
+        'from_app',
+        '1',
+        withPublicCookieDomain(c.req.url, {
+          path: '/',
+          httpOnly: false,
+          maxAge: SESSION_COOKIE_MAX_AGE,
+          sameSite: 'Lax',
+        })
+      )
       return c.redirect(`/app/login?error=${encodeURIComponent('카카오 로그인에 실패했습니다.')}`)
     }
 
@@ -91,7 +124,17 @@ kakaoAuth.get('/callback', async (c) => {
     })
 
     if (!userResponse.ok) {
-      setCookie(c, 'from_app', '1', { path: '/', domain: 'gom-hr.com', httpOnly: false, maxAge: 60 * 60 * 24 * 365, sameSite: 'Lax' })
+      setCookie(
+        c,
+        'from_app',
+        '1',
+        withPublicCookieDomain(c.req.url, {
+          path: '/',
+          httpOnly: false,
+          maxAge: SESSION_COOKIE_MAX_AGE,
+          sameSite: 'Lax',
+        })
+      )
       return c.redirect(`/app/login?error=${encodeURIComponent('사용자 정보를 가져오지 못했습니다.')}`)
     }
 
@@ -114,6 +157,7 @@ kakaoAuth.get('/callback', async (c) => {
     let gender: string | null = null
     let notificationTime = '20:00'
     let isAdmin = false
+    let sessionName = name
 
     if (existingUser) {
       // 기존 사용자 업데이트
@@ -123,9 +167,11 @@ kakaoAuth.get('/callback', async (c) => {
       notificationTime = existingUser.notification_time as string || '20:00'
       isAdmin = (existingUser.is_admin as number | null) === 1
       
+      // 사용자가 직접 바꾼 닉네임은 소셜 재로그인 시 덮어쓰지 않는다.
       await c.env.DB.prepare(
-        'UPDATE users SET email = ?, name = ?, picture = ? WHERE id = ?'
-      ).bind(email, name, picture, userId).run()
+        'UPDATE users SET email = ?, picture = ? WHERE id = ?'
+      ).bind(email, picture, userId).run()
+      sessionName = (existingUser.name as string | null) || name
 
       // 커플 코드 조회
       if (coupleId) {
@@ -143,6 +189,7 @@ kakaoAuth.get('/callback', async (c) => {
       ).bind(kakaoId, email, name, picture).run()
       
       userId = result.meta.last_row_id as number
+      sessionName = name
     }
 
     // 4. 세션 쿠키 생성
@@ -151,7 +198,7 @@ kakaoAuth.get('/callback', async (c) => {
       id: kakaoId,
       db_id: userId,
       email,
-      name,
+      name: sessionName,
       picture,
       provider: 'kakao',
       couple_id: coupleId,
@@ -162,28 +209,45 @@ kakaoAuth.get('/callback', async (c) => {
       is_admin: isAdmin
     }
 
-    // 쿠키를 gom-hr.com 도메인으로 설정 (apex·www 공유, 콜백 후 www 리다이렉트 시 전달)
-    setCookie(c, 'user_session', JSON.stringify(userSession), {
-      path: '/',
-      domain: 'gom-hr.com',
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax',
-    })
-    setCookie(c, 'from_app', '1', {
-      path: '/',
-      domain: 'gom-hr.com',
-      httpOnly: false,
-      maxAge: 60 * 60 * 24 * 365,
-      sameSite: 'Lax',
-    })
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(userSession),
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
+    setCookie(
+      c,
+      'from_app',
+      '1',
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
 
     return c.redirect('/dashboard')
     
   } catch (error) {
     console.error('Kakao OAuth error:', error)
-    setCookie(c, 'from_app', '1', { path: '/', domain: 'gom-hr.com', httpOnly: false, maxAge: 60 * 60 * 24 * 365, sameSite: 'Lax' })
+    setCookie(
+      c,
+      'from_app',
+      '1',
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
     return c.redirect(`/app/login?error=${encodeURIComponent('로그인 처리 중 오류가 발생했습니다.')}`)
   }
 })

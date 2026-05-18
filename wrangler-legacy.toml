@@ -1,12 +1,13 @@
 # 앱 전용 Legacy Worker (2.11 버전용)
-# gom-hr.com/app*, /dashboard, /setup, /history, /settings, /auth*, /api*, /signup, /logout
+# gom-hr.com/app*, /dashboard, /setup, /history, /mypage, /settings, /auth*, /api*, /signup, /logout
+# 로컬 테스트: /etc/hosts에 "127.0.0.1 gom-hr.com" 추가 후 http://gom-hr.com:포트/collage/create 접속
 name = "gomhour-legacy"
 main = "index-legacy.tsx"
 compatibility_date = "2025-02-05"
 
 [assets]
 directory = "./public"
-run_worker_first = ["/app*", "/dashboard*", "/auth*", "/api*", "/setup*", "/history*", "/settings*", "/signup*", "/logout*"]
+run_worker_first = ["/app*", "/dashboard*", "/auth*", "/api*", "/setup*", "/history*", "/mypage*", "/settings*", "/account-settings*", "/collage*", "/signup*", "/logout*"]
 
 # 앱 경로만 Legacy Worker로 라우팅 (gom-hr.com, www.gom-hr.com)
 # 더 구체적인 경로가 Main Worker보다 우선
@@ -27,7 +28,19 @@ pattern = "gom-hr.com/history*"
 zone_name = "gom-hr.com"
 
 [[routes]]
+pattern = "gom-hr.com/mypage*"
+zone_name = "gom-hr.com"
+
+[[routes]]
 pattern = "gom-hr.com/settings*"
+zone_name = "gom-hr.com"
+
+[[routes]]
+pattern = "gom-hr.com/account-settings*"
+zone_name = "gom-hr.com"
+
+[[routes]]
+pattern = "gom-hr.com/collage*"
 zone_name = "gom-hr.com"
 
 [[routes]]
@@ -75,7 +88,19 @@ pattern = "www.gom-hr.com/history*"
 zone_name = "gom-hr.com"
 
 [[routes]]
+pattern = "www.gom-hr.com/mypage*"
+zone_name = "gom-hr.com"
+
+[[routes]]
 pattern = "www.gom-hr.com/settings*"
+zone_name = "gom-hr.com"
+
+[[routes]]
+pattern = "www.gom-hr.com/account-settings*"
+zone_name = "gom-hr.com"
+
+[[routes]]
+pattern = "www.gom-hr.com/collage*"
 zone_name = "gom-hr.com"
 
 [[routes]]

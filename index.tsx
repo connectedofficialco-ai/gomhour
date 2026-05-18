@@ -5,8 +5,13 @@ import { SignJWT, createRemoteJWKSet, importPKCS8, jwtVerify } from 'jose'
 import { renderer } from './renderer'
 import kakaoAuth from './routes/kakao'
 import type { Bindings, User } from './types'
+import { withPublicCookieDomain } from './cookie-public'
 
 const app = new Hono<{ Bindings: Bindings }>()
+
+// "한 번 로그인하면 사실상 계속 유지"를 위해 10년으로 설정
+const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 10
+const FROM_APP_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
 const textEncoder = new TextEncoder()
 const appleJwks = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'))
@@ -137,6 +142,47 @@ const createAppleClientSecret = async (env: Bindings) => {
 // CORS 설정 (API 라우트용)
 app.use('/api/*', cors())
 
+// API 호출마다 세션·앱 쿠키 슬라이딩 (앱 WebView fetch에서도 로그인 유지)
+app.use('/api/*', async (c, next) => {
+  if (c.req.method === 'OPTIONS') {
+    await next()
+    return
+  }
+  if (getCookie(c, 'from_app') === '1') {
+    setCookie(
+      c,
+      'from_app',
+      '1',
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: false,
+        maxAge: FROM_APP_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
+  }
+  const raw = getCookie(c, 'user_session')
+  if (raw) {
+    try {
+      JSON.parse(raw)
+      setCookie(
+        c,
+        'user_session',
+        raw,
+        withPublicCookieDomain(c.req.url, {
+          path: '/',
+          httpOnly: true,
+          maxAge: SESSION_COOKIE_MAX_AGE,
+          sameSite: 'Lax',
+        })
+      )
+    } catch {
+      /* invalid cookie */
+    }
+  }
+  await next()
+})
+
 // apex 도메인(gom-hr.com)은 www로 통일
 // 단, OAuth 콜백(특히 Apple form_post)은 리다이렉트 시 본문 유실 가능성이 있어 예외 처리
 app.use('*', async (c, next) => {
@@ -154,6 +200,52 @@ const isFromApp = (c: any) => c.req.header('X-Gomhour-App') === '1' || getCookie
 // 소셜 로그인 라우트 등록
 app.route('/auth/kakao', kakaoAuth)
 
+// 앱 주요 화면 GET마다 세션 쿠키 만료 갱신 (슬라이딩)
+const SESSION_TOUCH_PREFIXES = ['/app', '/dashboard', '/setup', '/history', '/settings', '/collage', '/signup'] as const
+app.use('*', async (c, next) => {
+  if (c.req.method !== 'GET') {
+    await next()
+    return
+  }
+  const path = new URL(c.req.url).pathname
+  const shouldTouch = SESSION_TOUCH_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))
+  if (shouldTouch) {
+    if (getCookie(c, 'from_app') === '1') {
+      setCookie(
+        c,
+        'from_app',
+        '1',
+        withPublicCookieDomain(c.req.url, {
+          path: '/',
+          httpOnly: false,
+          maxAge: FROM_APP_COOKIE_MAX_AGE,
+          sameSite: 'Lax',
+        })
+      )
+    }
+    const raw = getCookie(c, 'user_session')
+    if (raw) {
+      try {
+        JSON.parse(raw)
+        setCookie(
+          c,
+          'user_session',
+          raw,
+          withPublicCookieDomain(c.req.url, {
+            path: '/',
+            httpOnly: true,
+            maxAge: SESSION_COOKIE_MAX_AGE,
+            sameSite: 'Lax',
+          })
+        )
+      } catch {
+        /* invalid session cookie */
+      }
+    }
+  }
+  await next()
+})
+
 // 개인정보처리방침 - /privacy는 /privacy.html로 리다이렉트, static asset 서빙
 app.get('/privacy', (c) => c.redirect('/privacy.html'))
 
@@ -162,7 +254,17 @@ app.use(renderer)
 
 // 앱 전용 진입점: /app 접속 시 쿠키 설정 후 로그인/대시보드로
 app.get('/app', (c) => {
-  setCookie(c, 'from_app', '1', { path: '/', httpOnly: false, maxAge: 60 * 60 * 24 * 365, sameSite: 'Lax' })
+  setCookie(
+    c,
+    'from_app',
+    '1',
+    withPublicCookieDomain(c.req.url, {
+      path: '/',
+      httpOnly: false,
+      maxAge: FROM_APP_COOKIE_MAX_AGE,
+      sameSite: 'Lax',
+    })
+  )
   const userSessionCookie = getCookie(c, 'user_session')
   if (userSessionCookie) {
     try {
@@ -500,13 +602,18 @@ app.post('/auth/signup', async (c) => {
       setup_done: false
     }
 
-    setCookie(c, 'user_session', JSON.stringify(userSession), {
-      path: '/',
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax',
-    })
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(userSession),
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
 
     return c.redirect('/setup')
   } catch (error) {
@@ -566,22 +673,32 @@ app.post('/auth/login', async (c) => {
       setup_done: setupDone
     }
 
-    setCookie(c, 'user_session', JSON.stringify(userSession), {
-      path: '/',
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax',
-    })
-
-    if ((dbUser.email as string) === 'admin@gomawo.app') {
-      setCookie(c, 'admin_force_setup', '1', {
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(userSession),
+      withPublicCookieDomain(c.req.url, {
         path: '/',
         httpOnly: true,
         secure: false,
-        maxAge: 60 * 10,
+        maxAge: SESSION_COOKIE_MAX_AGE,
         sameSite: 'Lax',
       })
+    )
+
+    if ((dbUser.email as string) === 'admin@gomawo.app') {
+      setCookie(
+        c,
+        'admin_force_setup',
+        '1',
+        withPublicCookieDomain(c.req.url, {
+          path: '/',
+          httpOnly: true,
+          secure: false,
+          maxAge: 60 * 10,
+          sameSite: 'Lax',
+        })
+      )
     }
 
     return c.redirect('/dashboard')
@@ -601,16 +718,20 @@ app.get('/auth/apple/login', (c) => {
   }
 
   const state = generateOauthState()
-  // 쿠키를 gom-hr.com 도메인으로 설정 (apex·www 공유)
-  // Apple 콜백은 apex(gom-hr.com)로 오므로, www에서 설정한 쿠키가 전달되려면 domain 필요
-  setCookie(c, 'apple_oauth_state', state, {
-    path: '/',
-    domain: 'gom-hr.com',
-    httpOnly: true,
-    secure: true,
-    maxAge: 60 * 10,
-    sameSite: 'None',
-  })
+  const reqUrl = new URL(c.req.url)
+  const isHttps = reqUrl.protocol === 'https:'
+  setCookie(
+    c,
+    'apple_oauth_state',
+    state,
+    withPublicCookieDomain(c.req.url, {
+      path: '/',
+      httpOnly: true,
+      secure: isHttps,
+      maxAge: 60 * 10,
+      sameSite: (isHttps ? 'None' : 'Lax') as 'None' | 'Lax',
+    })
+  )
 
   const authUrl = new URL('https://appleid.apple.com/auth/authorize')
   authUrl.searchParams.set('client_id', clientId)
@@ -624,13 +745,17 @@ app.get('/auth/apple/login', (c) => {
 })
 
 const setFromAppCookie = (c: any) => {
-  setCookie(c, 'from_app', '1', {
-    path: '/',
-    domain: 'gom-hr.com',
-    httpOnly: false,
-    maxAge: 60 * 60 * 24 * 365,
-    sameSite: 'Lax',
-  })
+  setCookie(
+    c,
+    'from_app',
+    '1',
+    withPublicCookieDomain(c.req.url, {
+      path: '/',
+      httpOnly: false,
+      maxAge: FROM_APP_COOKIE_MAX_AGE,
+      sameSite: 'Lax',
+    })
+  )
 }
 
 const handleAppleCallback = async (c: any) => {
@@ -734,6 +859,7 @@ const handleAppleCallback = async (c: any) => {
     let gender: string | null = null
     let notificationTime = '20:00'
     let isAdmin = false
+    let sessionName = name
 
     if (existingUser) {
       userId = existingUser.id as number
@@ -742,9 +868,11 @@ const handleAppleCallback = async (c: any) => {
       notificationTime = existingUser.notification_time as string || '20:00'
       isAdmin = (existingUser.is_admin as number | null) === 1
 
+      // 사용자가 직접 수정한 닉네임은 소셜 재로그인 시 덮어쓰지 않는다.
       await c.env.DB.prepare(
-        'UPDATE users SET email = ?, name = ? WHERE id = ?'
-      ).bind(email, existingUser.name || name, userId).run()
+        'UPDATE users SET email = ? WHERE id = ?'
+      ).bind(email, userId).run()
+      sessionName = (existingUser.name as string | null) || name
 
       coupleCode = await getCoupleCode(c.env.DB, coupleId)
     } else {
@@ -752,14 +880,15 @@ const handleAppleCallback = async (c: any) => {
         'INSERT INTO users (apple_id, email, name, picture) VALUES (?, ?, ?, ?)'
       ).bind(appleId, email, name, '').run()
       userId = result.meta.last_row_id as number
+      sessionName = name
     }
 
-    const setupDone = !!(gender && notificationTime && name && name !== 'Apple 사용자' && name !== '이메일 사용자')
+    const setupDone = !!(gender && notificationTime && sessionName && sessionName !== 'Apple 사용자' && sessionName !== '이메일 사용자')
     const userSession: User = {
       id: appleId,
       db_id: userId,
       email,
-      name: existingUser?.name || name,
+      name: sessionName,
       picture: '',
       provider: 'apple',
       couple_id: coupleId,
@@ -770,14 +899,18 @@ const handleAppleCallback = async (c: any) => {
       setup_done: setupDone
     }
 
-    setCookie(c, 'user_session', JSON.stringify(userSession), {
-      path: '/',
-      domain: 'gom-hr.com',
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax',
-    })
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(userSession),
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
     setFromAppCookie(c)
 
     return c.redirect('/dashboard')
@@ -863,12 +996,131 @@ app.get('/dashboard', async (c) => {
           </div>
         </div>
       </div>
+      <div id="unread-message-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] flex flex-col overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-base font-bold text-gray-800">아직 안 본 메시지가 있어요</h3>
+            <button type="button" id="close-unread-modal" class="p-2 rounded-full hover:bg-gray-100">
+              <i class="fas fa-times text-gray-600"></i>
+            </button>
+          </div>
+          <div id="unread-message-list" class="px-5 py-4 overflow-y-auto space-y-3"></div>
+          <div class="px-5 py-4 border-t border-gray-200">
+            <button type="button" id="confirm-unread-modal" class="w-full py-3 rounded-xl font-bold text-white shadow-md" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+              확인했어요
+            </button>
+          </div>
+        </div>
+      </div>
+      <div id="no-message-reminder-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 text-center">
+          <img id="no-message-reminder-image" src="/static/bear-female.png" alt="bear" class="w-28 h-28 mx-auto mb-4 object-contain" />
+          <h3 id="no-message-reminder-title" class="text-lg font-bold text-gray-800 mb-2">우리의 계약사항 잊지않았죠?</h3>
+          <p id="no-message-reminder-text" class="text-sm text-gray-600 mb-5">삐지지 말기</p>
+          <button type="button" id="close-no-message-reminder-modal" class="w-full py-3 rounded-xl font-bold text-white shadow-md" style="background: linear-gradient(135deg, #FFD700, #FFA500);">
+            알겠어요
+          </button>
+        </div>
+      </div>
       <script dangerouslySetInnerHTML={{ __html: `
         (function() {
           var today = ${JSON.stringify(today)};
           var feedback = document.getElementById('message-feedback');
           var input = document.getElementById('message-input');
           var btn = document.getElementById('send-btn');
+          var unreadModal = document.getElementById('unread-message-modal');
+          var unreadList = document.getElementById('unread-message-list');
+          var closeUnreadBtn = document.getElementById('close-unread-modal');
+          var confirmUnreadBtn = document.getElementById('confirm-unread-modal');
+          var noMsgModal = document.getElementById('no-message-reminder-modal');
+          var noMsgImage = document.getElementById('no-message-reminder-image');
+          var noMsgTitle = document.getElementById('no-message-reminder-title');
+          var noMsgText = document.getElementById('no-message-reminder-text');
+          var closeNoMsgBtn = document.getElementById('close-no-message-reminder-modal');
+          var currentUnreadIds = [];
+          function escapeHtml(str) {
+            return String(str || '')
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+          }
+          function closeUnreadModal() {
+            if (!unreadModal) return;
+            unreadModal.classList.add('hidden');
+          }
+          function markMessagesRead(ids) {
+            if (!Array.isArray(ids) || ids.length === 0) return;
+            fetch('/api/messages/read', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ message_ids: ids })
+            }).catch(function() {});
+          }
+          if (closeUnreadBtn) closeUnreadBtn.addEventListener('click', closeUnreadModal);
+          if (confirmUnreadBtn) {
+            confirmUnreadBtn.addEventListener('click', function() {
+              var ids = currentUnreadIds.slice();
+              if (ids.length > 0) markMessagesRead(ids);
+              closeUnreadModal();
+            });
+          }
+          if (unreadModal) {
+            unreadModal.addEventListener('click', function(e) {
+              if (e.target === unreadModal) closeUnreadModal();
+            });
+          }
+          function closeNoMsgModal() {
+            if (!noMsgModal) return;
+            noMsgModal.classList.add('hidden');
+          }
+          if (closeNoMsgBtn) closeNoMsgBtn.addEventListener('click', closeNoMsgModal);
+          if (noMsgModal) {
+            noMsgModal.addEventListener('click', function(e) {
+              if (e.target === noMsgModal) closeNoMsgModal();
+            });
+          }
+          function showNoMessageHint(hint) {
+            if (!hint || !noMsgModal || !noMsgImage || !noMsgText) return;
+            var gender = hint.partner_gender === 'male' ? 'male' : 'female';
+            noMsgImage.src = gender === 'male' ? '/static/promise-note-bear-male.png' : '/static/promise-note-bear-female.png';
+            if (noMsgTitle) noMsgTitle.textContent = '우리의 계약사항 잊지않았죠?';
+            noMsgText.textContent = '삐지지 말기';
+            noMsgModal.classList.remove('hidden');
+          }
+          function renderUnreadMessages(items) {
+            if (!unreadList || !unreadModal) return;
+            currentUnreadIds = items
+              .map(function(item) { return Number(item.id); })
+              .filter(function(id) { return Number.isInteger(id) && id > 0; });
+            unreadList.innerHTML = items.map(function(item) {
+              var author = escapeHtml(item.name || '상대방');
+              var date = escapeHtml(item.message_date || '');
+              var content = escapeHtml(item.content || '');
+              return '<div class="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">' +
+                '<div class="text-xs text-gray-500 mb-1">' + date + ' · ' + author + '</div>' +
+                '<p class="text-sm text-gray-800 whitespace-pre-wrap">' + content + '</p>' +
+              '</div>';
+            }).join('');
+            unreadModal.classList.remove('hidden');
+          }
+          fetch('/api/messages/unread', { credentials: 'include' })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+              if (!res || !res.success || !Array.isArray(res.unread_messages)) return;
+              if (res.unread_messages.length > 0) {
+                renderUnreadMessages(res.unread_messages);
+                return;
+              }
+              currentUnreadIds = [];
+              if (res.empty_hint) {
+                showNoMessageHint(res.empty_hint);
+              }
+            })
+            .catch(function() {});
+
           btn.addEventListener('click', function() {
             var content = input.value.trim();
             if (!content) { feedback.textContent = '내용을 입력해주세요.'; feedback.className = 'mt-2 text-sm text-red-600'; feedback.classList.remove('hidden'); return; }
@@ -1279,13 +1531,18 @@ app.post('/api/couple/create', async (c) => {
     }
     user.setup_done = true
     
-    setCookie(c, 'user_session', JSON.stringify(user), {
-      path: '/',
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax',
-    })
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(user),
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
 
     return c.json({ success: true, couple_code: coupleCode })
   } catch (error) {
@@ -1341,13 +1598,18 @@ app.post('/api/couple/join', async (c) => {
     }
     user.setup_done = true
     
-    setCookie(c, 'user_session', JSON.stringify(user), {
-      path: '/',
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax',
-    })
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(user),
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
 
     return c.json({ success: true })
   } catch (error) {
@@ -1479,6 +1741,304 @@ app.get('/api/messages/:year/:month', async (c) => {
   }
 })
 
+// 상대방 미확인 메시지 조회 (대시보드 모달용)
+app.get('/api/messages/unread', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  const effectiveCoupleId = user.couple_id ?? -user.db_id
+
+  try {
+    const unreadCountRow = await c.env.DB.prepare(
+      `SELECT COUNT(*) as count
+       FROM messages m
+       LEFT JOIN message_reads mr ON mr.message_id = m.id AND mr.user_id = ?
+       WHERE m.couple_id = ? AND m.user_id != ? AND mr.id IS NULL`
+    ).bind(user.db_id, effectiveCoupleId, user.db_id).first()
+    const unreadTotalCount = Number(unreadCountRow?.count || 0)
+
+    const unread = await c.env.DB.prepare(
+      `SELECT m.id, m.content, m.message_date, m.created_at, u.name
+       FROM messages m
+       JOIN users u ON u.id = m.user_id
+       LEFT JOIN message_reads mr ON mr.message_id = m.id AND mr.user_id = ?
+       WHERE m.couple_id = ? AND m.user_id != ? AND mr.id IS NULL
+       ORDER BY m.message_date DESC, m.created_at DESC, m.id DESC
+       LIMIT 5`
+    ).bind(user.db_id, effectiveCoupleId, user.db_id).all()
+
+    const unreadMessages = (unread.results || []) as any[]
+    let emptyHint: { partner_name: string; partner_gender: string } | null = null
+
+    if (unreadMessages.length === 0 && user.couple_id) {
+      const partner = await c.env.DB.prepare(
+        'SELECT id, name, gender FROM users WHERE couple_id = ? AND id != ? LIMIT 1'
+      ).bind(user.couple_id, user.db_id).first()
+
+      if (partner?.id) {
+        const yesterdayKst = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Seoul',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date(Date.now() - 24 * 60 * 60 * 1000))
+
+        const partnerWroteToday = await c.env.DB.prepare(
+          'SELECT id FROM messages WHERE couple_id = ? AND user_id = ? AND message_date = ? LIMIT 1'
+        ).bind(effectiveCoupleId, partner.id, yesterdayKst).first()
+
+        if (!partnerWroteToday) {
+          const partnerGender = String(partner.gender || '').trim()
+          if (partnerGender === 'male' || partnerGender === 'female') {
+            emptyHint = {
+              partner_name: String(partner.name || '상대방'),
+              partner_gender: partnerGender,
+            }
+          }
+        }
+      }
+    }
+
+    if (emptyHint) {
+      try {
+        const shownRow = await c.env.DB.prepare(
+          'SELECT COALESCE(contract_no_msg_reminder_shown, 0) AS shown FROM users WHERE id = ?'
+        )
+          .bind(user.db_id)
+          .first()
+        if (Number(shownRow?.shown) === 1) {
+          emptyHint = null
+        } else {
+          await c.env.DB.prepare(
+            'UPDATE users SET contract_no_msg_reminder_shown = 1 WHERE id = ?'
+          )
+            .bind(user.db_id)
+            .run()
+        }
+      } catch (e) {
+        /* 컬럼 없을 수 있음 */
+      }
+    }
+
+    return c.json({
+      success: true,
+      unread_messages: unreadMessages,
+      unread_total_count: unreadTotalCount,
+      empty_hint: emptyHint
+    })
+  } catch (error) {
+    console.error('미확인 메시지 조회 오류:', error)
+    return c.json({ success: false, error: '미확인 메시지 조회 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
+// 메시지 읽음 처리 (모달 오픈 시점 일괄 처리)
+app.post('/api/messages/read', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  const effectiveCoupleId = user.couple_id ?? -user.db_id
+  const body = await c.req.json().catch(() => ({} as { message_ids?: unknown }))
+  const rawIds = Array.isArray(body.message_ids) ? body.message_ids : []
+  const messageIds = rawIds
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0)
+
+  if (messageIds.length === 0) {
+    return c.json({ success: true, read_count: 0 })
+  }
+
+  try {
+    const placeholders = messageIds.map(() => '?').join(', ')
+    const targetRows = await c.env.DB.prepare(
+      `SELECT id FROM messages
+       WHERE id IN (${placeholders}) AND couple_id = ? AND user_id != ?`
+    ).bind(...messageIds, effectiveCoupleId, user.db_id).all()
+    const targetIds = (targetRows.results || [])
+      .map((row: any) => Number(row.id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+
+    for (const messageId of targetIds) {
+      await c.env.DB.prepare(
+        'INSERT OR IGNORE INTO message_reads (user_id, message_id, read_at) VALUES (?, ?, CURRENT_TIMESTAMP)'
+      ).bind(user.db_id, messageId).run()
+    }
+
+    return c.json({ success: true, read_count: targetIds.length })
+  } catch (error) {
+    console.error('메시지 읽음 처리 오류:', error)
+    return c.json({ success: false, error: '메시지 읽음 처리 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
+// 커플 약속 메모 목록
+app.get('/api/promise-notes', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  try {
+    const dbUser = await c.env.DB.prepare(
+      'SELECT couple_id FROM users WHERE id = ?'
+    ).bind(user.db_id).first()
+    const coupleId = dbUser?.couple_id as number | null
+    if (!coupleId) {
+      return c.json({ success: true, notes: [] })
+    }
+
+    const notes = await c.env.DB.prepare(
+      `SELECT pn.id, pn.title, pn.note_date, pn.content, pn.created_at, u.name as author_name
+       FROM promise_notes pn
+       JOIN users u ON u.id = pn.author_id
+       WHERE pn.couple_id = ?
+       ORDER BY pn.note_date DESC, pn.id DESC`
+    ).bind(coupleId).all()
+
+    return c.json({ success: true, notes: notes.results || [] })
+  } catch (error) {
+    console.error('약속 메모 조회 오류:', error)
+    return c.json({ success: false, error: '약속 메모 조회 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
+// 커플 약속 메모 저장
+app.post('/api/promise-notes', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  const { title, note_date, content } = await c.req.json()
+  const safeTitle = String(title || '').trim()
+  const inputDate = String(note_date || '').trim()
+  const safeDate = inputDate && /^\d{4}-\d{2}-\d{2}$/.test(inputDate) ? inputDate : getTodayKst()
+  const safeContent = String(content || '').trim()
+
+  if (!safeTitle || !safeContent) {
+    return c.json({ success: false, error: '제목과 내용을 모두 입력해주세요.' }, 400)
+  }
+  if (safeTitle.length > 80) {
+    return c.json({ success: false, error: '제목은 80자 이하로 입력해주세요.' }, 400)
+  }
+  if (safeContent.length > 2000) {
+    return c.json({ success: false, error: '내용은 2000자 이하로 입력해주세요.' }, 400)
+  }
+  try {
+    const dbUser = await c.env.DB.prepare(
+      'SELECT couple_id FROM users WHERE id = ?'
+    ).bind(user.db_id).first()
+    const coupleId = dbUser?.couple_id as number | null
+    if (!coupleId) {
+      return c.json({ success: false, error: '커플 연동 후 사용할 수 있습니다.' }, 400)
+    }
+
+    await c.env.DB.prepare(
+      'INSERT INTO promise_notes (couple_id, author_id, title, note_date, content) VALUES (?, ?, ?, ?, ?)'
+    ).bind(coupleId, user.db_id, safeTitle, safeDate, safeContent).run()
+
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('약속 메모 저장 오류:', error)
+    return c.json({ success: false, error: '약속 메모 저장 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
+// 커플 약속 메모 수정
+app.put('/api/promise-notes/:id', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  const noteId = Number(c.req.param('id'))
+  if (!Number.isInteger(noteId) || noteId <= 0) {
+    return c.json({ success: false, error: '유효하지 않은 메모입니다.' }, 400)
+  }
+
+  const { title, content } = await c.req.json()
+  const safeTitle = String(title || '').trim()
+  const safeContent = String(content || '').trim()
+
+  if (!safeTitle || !safeContent) {
+    return c.json({ success: false, error: '제목과 내용을 모두 입력해주세요.' }, 400)
+  }
+  if (safeTitle.length > 80) {
+    return c.json({ success: false, error: '제목은 80자 이하로 입력해주세요.' }, 400)
+  }
+  if (safeContent.length > 2000) {
+    return c.json({ success: false, error: '내용은 2000자 이하로 입력해주세요.' }, 400)
+  }
+  try {
+    const dbUser = await c.env.DB.prepare(
+      'SELECT couple_id FROM users WHERE id = ?'
+    ).bind(user.db_id).first()
+    const coupleId = dbUser?.couple_id as number | null
+    if (!coupleId) {
+      return c.json({ success: false, error: '커플 연동 후 사용할 수 있습니다.' }, 400)
+    }
+
+    const result = await c.env.DB.prepare(
+      'UPDATE promise_notes SET title = ?, content = ? WHERE id = ? AND couple_id = ?'
+    ).bind(safeTitle, safeContent, noteId, coupleId).run()
+
+    if (!(result.meta.changes && result.meta.changes > 0)) {
+      return c.json({ success: false, error: '메모를 찾을 수 없습니다.' }, 404)
+    }
+
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('약속 메모 수정 오류:', error)
+    return c.json({ success: false, error: '약속 메모 수정 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
+// 커플 약속 메모 삭제
+app.delete('/api/promise-notes/:id', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+  const noteId = Number(c.req.param('id'))
+  if (!Number.isInteger(noteId) || noteId <= 0) {
+    return c.json({ success: false, error: '유효하지 않은 메모입니다.' }, 400)
+  }
+
+  try {
+    const dbUser = await c.env.DB.prepare(
+      'SELECT couple_id FROM users WHERE id = ?'
+    ).bind(user.db_id).first()
+    const coupleId = dbUser?.couple_id as number | null
+    if (!coupleId) {
+      return c.json({ success: false, error: '커플 연동 후 사용할 수 있습니다.' }, 400)
+    }
+
+    const result = await c.env.DB.prepare(
+      'DELETE FROM promise_notes WHERE id = ? AND couple_id = ?'
+    ).bind(noteId, coupleId).run()
+
+    if (!(result.meta.changes && result.meta.changes > 0)) {
+      return c.json({ success: false, error: '메모를 찾을 수 없습니다.' }, 404)
+    }
+
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('약속 메모 삭제 오류:', error)
+    return c.json({ success: false, error: '약속 메모 삭제 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
 // 사용자 닉네임 업데이트
 app.post('/api/user/update-name', async (c) => {
   const userSessionCookie = getCookie(c, 'user_session')
@@ -1500,12 +2060,18 @@ app.post('/api/user/update-name', async (c) => {
 
     // 세션 쿠키 업데이트
     user.name = name.trim()
-    setCookie(c, 'user_session', JSON.stringify(user), {
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax'
-    })
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(user),
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
 
     return c.json({ success: true })
   } catch (error) {
@@ -1566,13 +2132,18 @@ app.post('/api/user/skip-couple-setup', async (c) => {
       user.name = name.trim()
     }
     user.setup_done = true
-    setCookie(c, 'user_session', JSON.stringify(user), {
-      path: '/',
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax'
-    })
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(user),
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
 
     return c.json({ success: true })
   } catch (error) {
@@ -1605,6 +2176,27 @@ app.post('/api/user/update-password', async (c) => {
   } catch (error) {
     console.error('비밀번호 업데이트 오류:', error)
     return c.json({ success: false, error: '비밀번호 업데이트 중 오류가 발생했습니다.' }, 500)
+  }
+})
+
+// 사용자 앱 잠금 비밀번호 해지
+app.post('/api/user/clear-password', async (c) => {
+  const userSessionCookie = getCookie(c, 'user_session')
+  if (!userSessionCookie) {
+    return c.json({ success: false, error: '로그인이 필요합니다.' }, 401)
+  }
+
+  const user: User = JSON.parse(userSessionCookie)
+
+  try {
+    await c.env.DB.prepare(
+      'UPDATE users SET pin = NULL WHERE id = ?'
+    ).bind(user.db_id).run()
+
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('비밀번호 해지 오류:', error)
+    return c.json({ success: false, error: '비밀번호 해지 중 오류가 발생했습니다.' }, 500)
   }
 })
 
@@ -1747,12 +2339,18 @@ app.post('/api/couple/unlink', async (c) => {
     // 세션 쿠키 업데이트
     user.couple_id = undefined
     user.couple_code = undefined
-    setCookie(c, 'user_session', JSON.stringify(user), {
-      httpOnly: true,
-      secure: false,
-      maxAge: 60 * 60 * 24 * 7,
-      sameSite: 'Lax'
-    })
+    setCookie(
+      c,
+      'user_session',
+      JSON.stringify(user),
+      withPublicCookieDomain(c.req.url, {
+        path: '/',
+        httpOnly: true,
+        secure: false,
+        maxAge: SESSION_COOKIE_MAX_AGE,
+        sameSite: 'Lax',
+      })
+    )
 
     return c.json({ success: true })
   } catch (error) {
@@ -1776,7 +2374,7 @@ app.post('/api/user/delete-account', async (c) => {
     ).bind(user.db_id).first()
 
     if (!dbUser) {
-      deleteCookie(c, 'user_session', { path: '/' })
+      deleteCookie(c, 'user_session', withPublicCookieDomain(c.req.url, { path: '/' }))
       return c.json({ success: true })
     }
 
@@ -1814,7 +2412,7 @@ app.post('/api/user/delete-account', async (c) => {
       'DELETE FROM users WHERE id = ?'
     ).bind(user.db_id).run()
 
-    deleteCookie(c, 'user_session', { path: '/' })
+    deleteCookie(c, 'user_session', withPublicCookieDomain(c.req.url, { path: '/' }))
 
     return c.json({ success: true })
   } catch (error) {
@@ -1825,7 +2423,7 @@ app.post('/api/user/delete-account', async (c) => {
 
 // 로그아웃
 app.get('/logout', (c) => {
-  deleteCookie(c, 'user_session', { path: '/' })
+  deleteCookie(c, 'user_session', withPublicCookieDomain(c.req.url, { path: '/' }))
   return c.redirect('/')
 })
 
